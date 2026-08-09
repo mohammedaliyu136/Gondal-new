@@ -1,0 +1,95 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      WHAT THE FIELD APP NEEDS, AND WHY EACH ONE.
+
+      `flutter create` declares NONE of these. Without them the app still
+      compiles and installs, and then fails at runtime with no compile-time
+      warning: every sync call refused, every GPS read null, the camera never
+      opening. That failure looks exactly like "no signal in the valley", which
+      is the one condition this app is supposed to survive — so it would have
+      been diagnosed as a network problem in Adamawa rather than as a missing
+      line here.
+    -->
+
+    <!-- Sync. Without this, every request fails and the outbox never drains. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!--
+      The sync engine listens to connectivity_plus to know when to try. On
+      Android that stream needs this permission or it reports nothing, and the
+      queue then only drains on the 5-minute timer.
+    -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!--
+      Where the visit happened. FINE is what gives a usable accuracy figure;
+      COARSE is declared alongside it because Android 12+ lets the user grant
+      only the approximate one, and geolocator still returns a fix in that case
+      — a ±2000 m coordinate is worth more than none, and the accuracy column
+      is stored precisely so a reviewer can tell them apart.
+    -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!-- The photograph. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+
+    <!--
+      Neither location nor a camera is REQUIRED to install: a visit with no fix
+      and no photo is still a valid record (see LocationService, which returns
+      null on every failure path). Declaring them required would keep the app
+      off cheaper handsets for features it deliberately treats as optional.
+    -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+
+    <application
+        android:label="Gondal AgentConnect"
+        android:name="${applicationName}"
+        android:icon="@mipmap/ic_launcher"
+        android:networkSecurityConfig="@xml/network_security_config">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:taskAffinity=""
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+            <!-- Specifies an Android theme to apply to this Activity as soon as
+                 the Android process has started. This theme is visible to the user
+                 while the Flutter UI initializes. After that, this theme continues
+                 to determine the Window background behind the Flutter UI. -->
+            <meta-data
+              android:name="io.flutter.embedding.android.NormalTheme"
+              android:resource="@style/NormalTheme"
+              />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+        <!-- Don't delete the meta-data below.
+             This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+    </application>
+    <!-- Required to query activities that can process text, see:
+         https://developer.android.com/training/package-visibility and
+         https://developer.android.com/reference/android/content/Intent#ACTION_PROCESS_TEXT.
+
+         In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.PROCESS_TEXT"/>
+            <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- image_picker hands off to whatever camera app is installed. -->
+        <intent>
+            <action android:name="android.media.action.IMAGE_CAPTURE" />
+        </intent>
+    </queries>
+</manifest>

@@ -1,0 +1,140 @@
+{
+  "role": "05-shop-manager",
+  "frames": [
+    {
+      "n": 1,
+      "file": "001-sign-in-page-for-amina-kabir-gondalfulbe-ng.png",
+      "caption": "sign-in page for amina.kabir@gondalfulbe.ng",
+      "url": "http://127.0.0.1:8008/login"
+    },
+    {
+      "n": 2,
+      "file": "002-credentials-entered.png",
+      "caption": "credentials entered",
+      "url": "http://127.0.0.1:8008/login"
+    },
+    {
+      "n": 3,
+      "file": "003-after-submitting-credentials.png",
+      "caption": "after submitting credentials",
+      "url": "http://127.0.0.1:8008/login/verify"
+    },
+    {
+      "n": 4,
+      "file": "004-two-factor-code-entered-read-from-the-database.png",
+      "caption": "two-factor code entered (read from the database)",
+      "url": "http://127.0.0.1:8008/login/verify"
+    },
+    {
+      "n": 5,
+      "file": "005-after-submitting-the-two-factor-code.png",
+      "caption": "after submitting the two-factor code",
+      "url": "http://127.0.0.1:8008/"
+    },
+    {
+      "n": 6,
+      "file": "006-shop-sales-as-manager.png",
+      "caption": "shop sales as manager",
+      "url": "http://127.0.0.1:8008/shop/sales"
+    },
+    {
+      "n": 7,
+      "file": "007-an-unvoided-sale-as-manager.png",
+      "caption": "an unvoided sale, as manager",
+      "url": "http://127.0.0.1:8008/shop/sales/8"
+    },
+    {
+      "n": 8,
+      "file": "008-void-modal.png",
+      "caption": "void modal",
+      "url": "http://127.0.0.1:8008/shop/sales/8#modal-void"
+    },
+    {
+      "n": 9,
+      "file": "009-void-reason-entered.png",
+      "caption": "void reason entered",
+      "url": "http://127.0.0.1:8008/shop/sales/8#modal-void"
+    },
+    {
+      "n": 10,
+      "file": "010-after-voiding-the-sale.png",
+      "caption": "after voiding the sale",
+      "url": "http://127.0.0.1:8008/shop/sales/8#"
+    },
+    {
+      "n": 11,
+      "file": "011-inventory.png",
+      "caption": "inventory",
+      "url": "http://127.0.0.1:8008/shop/inventory"
+    },
+    {
+      "n": 12,
+      "file": "012-a-product.png",
+      "caption": "a product",
+      "url": "http://127.0.0.1:8008/shop/products/6"
+    },
+    {
+      "n": 13,
+      "file": "013-product-categories.png",
+      "caption": "product categories",
+      "url": "http://127.0.0.1:8008/shop/categories"
+    }
+  ],
+  "findings": [
+    {
+      "step": "5.0",
+      "story": "Sign in",
+      "did": "credentials + emailed code",
+      "happened": "reached the dashboard",
+      "verdict": "works",
+      "frame": 5,
+      "url": "http://127.0.0.1:8008/"
+    },
+    {
+      "step": "5.1",
+      "story": "See the money",
+      "did": "read the money tiles",
+      "happened": "visible: REVENUE TODAY ₦68k across the shop | MARGIN TODAY ₦12k against the cost recorded at the time of sale | CREDIT OUTSTANDING ₦125k credit sales to date",
+      "verdict": "works",
+      "frame": 6,
+      "url": "http://127.0.0.1:8008/shop/sales"
+    },
+    {
+      "step": "5.2a",
+      "story": "A void control is offered to the manager",
+      "did": "opened a sale",
+      "happened": "Void is offered",
+      "verdict": "works",
+      "frame": 7,
+      "url": "http://127.0.0.1:8008/shop/sales/8"
+    },
+    {
+      "step": "5.2b",
+      "story": "Void a wrong sale",
+      "did": "submitted the void with a reason",
+      "happened": "✅ RCP-20260803-00003 voided. Stock has been returned.",
+      "verdict": "works",
+      "frame": 10,
+      "url": "http://127.0.0.1:8008/shop/sales/8#"
+    },
+    {
+      "step": "5.5",
+      "story": "Receive stock",
+      "did": "opened a product and looked for Receive stock",
+      "happened": "Receive stock is offered",
+      "verdict": "works",
+      "frame": 12,
+      "url": "http://127.0.0.1:8008/shop/products/6"
+    },
+    {
+      "step": "5.6",
+      "story": "Create a product category",
+      "did": "looked for the add action",
+      "happened": "the add action is offered",
+      "verdict": "works",
+      "frame": 13,
+      "url": "http://127.0.0.1:8008/shop/categories"
+    }
+  ],
+  "console": []
+}

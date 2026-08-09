@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 9 (API 28) and later block cleartext HTTP by default, and this app's
+  default server is http://10.0.2.2:8000 — the host machine as seen from an
+  emulator. Without this file every request during development fails with
+  CLEARTEXT_NOT_PERMITTED, which reads like a server problem and is not one.
+
+  DEVELOPMENT HOSTS ONLY. The exemption is a short allow-list of loopback
+  addresses, NOT `cleartextTrafficPermitted="true"` across the board. A pilot
+  running over plain HTTP to a real server would be sending an agent's bearer
+  token and a farmer register across a Nigerian mobile network in the clear, so
+  the production host is deliberately not listed here: point the build at an
+  https:// URL via the API_BASE_URL dart-define and this file stops applying
+  to it.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <!-- The host machine from the Android emulator. -->
+        <domain includeSubdomains="false">10.0.2.2</domain>
+        <!-- The host machine from the Genymotion emulator. -->
+        <domain includeSubdomains="false">10.0.3.2</domain>
+        <!-- A device on the same LAN as the developer's machine. -->
+        <domain includeSubdomains="false">localhost</domain>
+        <domain includeSubdomains="false">127.0.0.1</domain>
+    </domain-config>
+</network-security-config>

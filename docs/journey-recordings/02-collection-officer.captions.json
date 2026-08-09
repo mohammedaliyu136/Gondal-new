@@ -1,0 +1,307 @@
+{
+  "role": "02-collection-officer",
+  "frames": [
+    {
+      "n": 1,
+      "file": "001-sign-in-page-for-halima-yusuf-gondalfulbe-ng.png",
+      "caption": "sign-in page for halima.yusuf@gondalfulbe.ng",
+      "url": "http://127.0.0.1:8008/login"
+    },
+    {
+      "n": 2,
+      "file": "002-credentials-entered.png",
+      "caption": "credentials entered",
+      "url": "http://127.0.0.1:8008/login"
+    },
+    {
+      "n": 3,
+      "file": "003-after-submitting-credentials.png",
+      "caption": "after submitting credentials",
+      "url": "http://127.0.0.1:8008/login/verify"
+    },
+    {
+      "n": 4,
+      "file": "004-two-factor-code-entered-read-from-the-database.png",
+      "caption": "two-factor code entered (read from the database)",
+      "url": "http://127.0.0.1:8008/login/verify"
+    },
+    {
+      "n": 5,
+      "file": "005-after-submitting-the-two-factor-code.png",
+      "caption": "after submitting the two-factor code",
+      "url": "http://127.0.0.1:8008/"
+    },
+    {
+      "n": 6,
+      "file": "006-consignments-at-my-centre.png",
+      "caption": "consignments at my centre",
+      "url": "http://127.0.0.1:8008/milk-flow/consignments"
+    },
+    {
+      "n": 7,
+      "file": "007-consignments-looking-for-adjust.png",
+      "caption": "consignments, looking for Adjust",
+      "url": "http://127.0.0.1:8008/milk-flow/consignments"
+    },
+    {
+      "n": 8,
+      "file": "008-adjust-modal-open.png",
+      "caption": "adjust modal open",
+      "url": "http://127.0.0.1:8008/milk-flow/consignments#modal-adjust-24"
+    },
+    {
+      "n": 9,
+      "file": "009-adjustment-of-2-5-l-with-a-reason.png",
+      "caption": "adjustment of -2.5 L with a reason",
+      "url": "http://127.0.0.1:8008/milk-flow/consignments#modal-adjust-24"
+    },
+    {
+      "n": 10,
+      "file": "010-after-recording-the-adjustment.png",
+      "caption": "after recording the adjustment",
+      "url": "http://127.0.0.1:8008/milk-flow/consignments#"
+    },
+    {
+      "n": 11,
+      "file": "011-confirm-modal-open.png",
+      "caption": "confirm modal open",
+      "url": "http://127.0.0.1:8008/milk-flow/consignments#modal-confirm-24"
+    },
+    {
+      "n": 12,
+      "file": "012-confirm-modal-recording-test-1.png",
+      "caption": "confirm modal, recording test 1",
+      "url": "http://127.0.0.1:8008/milk-flow/consignments#modal-confirm-24"
+    },
+    {
+      "n": 13,
+      "file": "013-confirm-modal-recording-test-2.png",
+      "caption": "confirm modal, recording test 2",
+      "url": "http://127.0.0.1:8008/milk-flow/consignments#modal-confirm-24"
+    },
+    {
+      "n": 14,
+      "file": "014-confirm-modal-recording-test-3.png",
+      "caption": "confirm modal, recording test 3",
+      "url": "http://127.0.0.1:8008/milk-flow/consignments#modal-confirm-24"
+    },
+    {
+      "n": 15,
+      "file": "015-after-recording-3-3-quality-tests.png",
+      "caption": "after recording 3/3 quality tests",
+      "url": "http://127.0.0.1:8008/milk-flow/consignments#"
+    },
+    {
+      "n": 16,
+      "file": "016-confirm-modal-with-tests-complete.png",
+      "caption": "confirm modal with tests complete",
+      "url": "http://127.0.0.1:8008/milk-flow/consignments#modal-confirm-24"
+    },
+    {
+      "n": 17,
+      "file": "017-grade-chosen-on-the-confirm-form.png",
+      "caption": "grade chosen on the confirm form",
+      "url": "http://127.0.0.1:8008/milk-flow/consignments#modal-confirm-24"
+    },
+    {
+      "n": 18,
+      "file": "018-after-confirming-with-a-grade.png",
+      "caption": "after confirming with a grade",
+      "url": "http://127.0.0.1:8008/milk-flow/consignments#"
+    },
+    {
+      "n": 19,
+      "file": "019-consignments-looking-for-assign-grade.png",
+      "caption": "consignments, looking for Assign grade",
+      "url": "http://127.0.0.1:8008/milk-flow/consignments"
+    },
+    {
+      "n": 20,
+      "file": "020-batches-list.png",
+      "caption": "batches list",
+      "url": "http://127.0.0.1:8008/milk-flow/batches"
+    },
+    {
+      "n": 21,
+      "file": "021-collection-centres-list.png",
+      "caption": "collection centres list",
+      "url": "http://127.0.0.1:8008/collection-centers"
+    },
+    {
+      "n": 22,
+      "file": "022-my-collection-centre.png",
+      "caption": "my collection centre",
+      "url": "http://127.0.0.1:8008/collection-centers/1"
+    },
+    {
+      "n": 23,
+      "file": "023-dispatch-batch-modal.png",
+      "caption": "dispatch-batch modal",
+      "url": "http://127.0.0.1:8008/collection-centers/1#modal-batch"
+    },
+    {
+      "n": 24,
+      "file": "024-batch-modal-1-eligible-consignments.png",
+      "caption": "batch modal, 1 eligible consignments",
+      "url": "http://127.0.0.1:8008/collection-centers/1#modal-batch"
+    },
+    {
+      "n": 25,
+      "file": "025-after-dispatching-the-batch.png",
+      "caption": "after dispatching the batch",
+      "url": "http://127.0.0.1:8008/milk-flow/batches/11#"
+    },
+    {
+      "n": 26,
+      "file": "026-attempting-factory-reconciliation.png",
+      "caption": "attempting factory reconciliation",
+      "url": "http://127.0.0.1:8008/reconciliation"
+    },
+    {
+      "n": 27,
+      "file": "027-collection-centres-list.png",
+      "caption": "collection centres list",
+      "url": "http://127.0.0.1:8008/collection-centers"
+    }
+  ],
+  "findings": [
+    {
+      "step": "2.0",
+      "story": "Sign in",
+      "did": "email + password + emailed code",
+      "happened": "reached the dashboard",
+      "verdict": "works",
+      "frame": 5,
+      "url": "http://127.0.0.1:8008/"
+    },
+    {
+      "step": "2.1",
+      "story": "See what is waiting",
+      "did": "opened the consignments screen",
+      "happened": "an awaiting-confirmation queue is shown",
+      "verdict": "works",
+      "frame": 6,
+      "url": "http://127.0.0.1:8008/milk-flow/consignments"
+    },
+    {
+      "step": "2.5a",
+      "story": "An adjust control is offered",
+      "did": "looked for Adjust on the list",
+      "happened": "Adjust is offered",
+      "verdict": "works",
+      "frame": 7,
+      "url": "http://127.0.0.1:8008/milk-flow/consignments"
+    },
+    {
+      "step": "2.5b",
+      "story": "Adjust before confirming (−2.5 L)",
+      "did": "submitted the adjustment",
+      "happened": "✅ Adjustment recorded. It takes effect when the consignment is confirmed.",
+      "verdict": "works",
+      "frame": 10,
+      "url": "http://127.0.0.1:8008/milk-flow/consignments#"
+    },
+    {
+      "step": "2.3",
+      "story": "Blocked from grading before the required tests",
+      "did": "opened Confirm and inspected the grade control",
+      "happened": "grade list disabled; it says: \"Record Density (lactometer), Intake temperature, Alcohol test first.\"",
+      "verdict": "refuses",
+      "frame": 11,
+      "url": "http://127.0.0.1:8008/milk-flow/consignments#modal-confirm-24"
+    },
+    {
+      "step": "2.2a",
+      "story": "Quality tests are offered on the confirm form",
+      "did": "opened Confirm",
+      "happened": "3 recordable tests",
+      "verdict": "works",
+      "frame": 11,
+      "url": "http://127.0.0.1:8008/milk-flow/consignments#modal-confirm-24"
+    },
+    {
+      "step": "2.2b",
+      "story": "Record every quality test",
+      "did": "pressed Record on each test in turn",
+      "happened": "3 of 3 recorded without error",
+      "verdict": "works",
+      "frame": 15,
+      "url": "http://127.0.0.1:8008/milk-flow/consignments#"
+    },
+    {
+      "step": "2.3b",
+      "story": "The grade control unlocks once the tests are recorded",
+      "did": "re-opened Confirm",
+      "happened": "grade list is now enabled",
+      "verdict": "works",
+      "frame": 16,
+      "url": "http://127.0.0.1:8008/milk-flow/consignments#modal-confirm-24"
+    },
+    {
+      "step": "2.4",
+      "story": "Confirm with a grade",
+      "did": "submitted the confirm form with a grade",
+      "happened": "✅ CNS-0461 confirmed at 52.50 L — Grade A.",
+      "verdict": "works",
+      "frame": 18,
+      "url": "http://127.0.0.1:8008/milk-flow/consignments#"
+    },
+    {
+      "step": "2.7",
+      "story": "Grade a consignment confirmed without one",
+      "did": "looked for Assign grade",
+      "happened": "Assign grade is offered",
+      "verdict": "works",
+      "frame": 19,
+      "url": "http://127.0.0.1:8008/milk-flow/consignments"
+    },
+    {
+      "step": "2.8a",
+      "story": "The Batches screen leads somewhere you can dispatch",
+      "did": "looked at /milk-flow/batches",
+      "happened": "the screen points at the centre where batches are dispatched",
+      "verdict": "works",
+      "frame": 20,
+      "url": "http://127.0.0.1:8008/milk-flow/batches"
+    },
+    {
+      "step": "2.8b",
+      "story": "Dispatch a batch from the centre",
+      "did": "opened the centre and looked for Dispatch batch",
+      "happened": "Dispatch batch is offered",
+      "verdict": "works",
+      "frame": 22,
+      "url": "http://127.0.0.1:8008/collection-centers/1"
+    },
+    {
+      "step": "2.8c",
+      "story": "Dispatching a batch creates one",
+      "did": "ticked the eligible consignments and dispatched",
+      "happened": "✅ BATCH-0097 dispatched — 52.50 L.",
+      "verdict": "works",
+      "frame": 25,
+      "url": "http://127.0.0.1:8008/milk-flow/batches/11#"
+    },
+    {
+      "step": "2.9",
+      "story": "CANNOT reconcile at the factory",
+      "did": "navigated to /reconciliation",
+      "happened": "status 403, ref DENY-0017",
+      "verdict": "refuses",
+      "frame": 26,
+      "url": "http://127.0.0.1:8008/reconciliation"
+    },
+    {
+      "step": "2.10",
+      "story": "CANNOT see another centre",
+      "did": "read the centres list",
+      "happened": "centres visible: [\"Kumbotso\\nCTR-KUMB\"]",
+      "verdict": "works",
+      "frame": 27,
+      "url": "http://127.0.0.1:8008/collection-centers"
+    }
+  ],
+  "console": [
+    "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+  ]
+}

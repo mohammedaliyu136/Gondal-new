@@ -1,0 +1,58 @@
+name: agent_connect
+description: >
+  Gondal AgentConnect — the field app for extension agents in Adamawa.
+  Revalidations and field visits are captured offline, with a photograph and a
+  coordinate, and sync when a connection appears.
+publish_to: none
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Local store. The outbox is the source of truth until the server has it —
+  # sqflite rather than a key/value box because the queue is queried by status
+  # and type on every sync pass, and that is a table, not a map.
+  sqflite: ^2.3.3
+  path: ^1.9.0
+  path_provider: ^2.1.4
+
+  # The token never touches SharedPreferences: it is a bearer credential that
+  # survives on a phone that gets lost in a market.
+  flutter_secure_storage: ^9.2.2
+
+  http: ^1.2.2
+  uuid: ^4.4.2
+  intl: ^0.19.0
+
+  # Field capture.
+  # 14.x, not 12.x: `getCurrentPosition(locationSettings:)` replaced the
+  # separate desiredAccuracy/timeLimit parameters, which are deprecated there.
+  geolocator: ^14.0.1        # coordinate + accuracy, with permission handling
+  image_picker: ^1.1.2       # camera
+  flutter_image_compress: ^2.3.0   # shrink before queueing, never after
+
+  connectivity_plus: ^6.0.5  # "there may be a network now" — a hint, not proof
+
+  # NO BACKGROUND WORKER. `workmanager` was declared here and never registered;
+  # 0.5.2 still calls the v1 Android embedding (ShimPluginRegistry,
+  # PluginRegistrantCallback), which modern Flutter removed, so it broke
+  # `flutter build apk` outright. An unused dependency that costs the build is
+  # not a placeholder, it is a defect. Sync runs on connectivity changes and a
+  # timer while the app is alive; draining the queue with the app CLOSED needs
+  # workmanager ^0.10 and its platform setup, as its own piece of work.
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+  # Runs the real sqflite schema on the host VM, so the outbox tests exercise
+  # the same SQL the phone does rather than a mock that agrees with itself.
+  sqflite_common_ffi: ^2.3.3
+
+flutter:
+  uses-material-design: true

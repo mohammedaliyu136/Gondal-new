@@ -1,0 +1,161 @@
+{
+  "role": "03-milk-supervisor",
+  "frames": [
+    {
+      "n": 1,
+      "file": "001-sign-in-page-for-muhammad-bello-gondalfulbe-ng.png",
+      "caption": "sign-in page for muhammad.bello@gondalfulbe.ng",
+      "url": "http://127.0.0.1:8008/login"
+    },
+    {
+      "n": 2,
+      "file": "002-credentials-entered.png",
+      "caption": "credentials entered",
+      "url": "http://127.0.0.1:8008/login"
+    },
+    {
+      "n": 3,
+      "file": "003-after-submitting-credentials.png",
+      "caption": "after submitting credentials",
+      "url": "http://127.0.0.1:8008/login/verify"
+    },
+    {
+      "n": 4,
+      "file": "004-two-factor-code-entered-read-from-the-database.png",
+      "caption": "two-factor code entered (read from the database)",
+      "url": "http://127.0.0.1:8008/login/verify"
+    },
+    {
+      "n": 5,
+      "file": "005-after-submitting-the-two-factor-code.png",
+      "caption": "after submitting the two-factor code",
+      "url": "http://127.0.0.1:8008/"
+    },
+    {
+      "n": 6,
+      "file": "006-factory-reconciliation.png",
+      "caption": "factory reconciliation",
+      "url": "http://127.0.0.1:8008/reconciliation"
+    },
+    {
+      "n": 7,
+      "file": "007-reconcile-modal-big-variance.png",
+      "caption": "reconcile modal, big variance",
+      "url": "http://127.0.0.1:8008/reconciliation#modal-reconcile-2"
+    },
+    {
+      "n": 8,
+      "file": "008-received-litres-50-below-dispatched-no-cause-given.png",
+      "caption": "received litres ~50% below dispatched, no cause given",
+      "url": "http://127.0.0.1:8008/reconciliation#modal-reconcile-2"
+    },
+    {
+      "n": 9,
+      "file": "009-after-submitting-a-big-unexplained-variance.png",
+      "caption": "after submitting a big unexplained variance",
+      "url": "http://127.0.0.1:8008/reconciliation#"
+    },
+    {
+      "n": 10,
+      "file": "010-reconcile-modal-within-tolerance.png",
+      "caption": "reconcile modal, within tolerance",
+      "url": "http://127.0.0.1:8008/reconciliation#modal-reconcile-2"
+    },
+    {
+      "n": 11,
+      "file": "011-received-equals-dispatched.png",
+      "caption": "received equals dispatched",
+      "url": "http://127.0.0.1:8008/reconciliation#modal-reconcile-2"
+    },
+    {
+      "n": 12,
+      "file": "012-after-reconciling-within-tolerance.png",
+      "caption": "after reconciling within tolerance",
+      "url": "http://127.0.0.1:8008/reconciliation#"
+    },
+    {
+      "n": 13,
+      "file": "013-reconciliation-after-the-batch-was-reconciled.png",
+      "caption": "reconciliation after the batch was reconciled",
+      "url": "http://127.0.0.1:8008/reconciliation"
+    },
+    {
+      "n": 14,
+      "file": "014-collection-points.png",
+      "caption": "collection points",
+      "url": "http://127.0.0.1:8008/collection-points"
+    },
+    {
+      "n": 15,
+      "file": "015-supervisor-dashboard.png",
+      "caption": "supervisor dashboard",
+      "url": "http://127.0.0.1:8008/"
+    }
+  ],
+  "findings": [
+    {
+      "step": "3.0",
+      "story": "Sign in",
+      "did": "credentials + emailed code",
+      "happened": "reached the dashboard",
+      "verdict": "works",
+      "frame": 5,
+      "url": "http://127.0.0.1:8008/"
+    },
+    {
+      "step": "3.1a",
+      "story": "Reconciliation is reachable and offers work",
+      "did": "opened /reconciliation",
+      "happened": "a batch is offered for reconciliation",
+      "verdict": "works",
+      "frame": 6,
+      "url": "http://127.0.0.1:8008/reconciliation"
+    },
+    {
+      "step": "3.2",
+      "story": "Forced to explain a variance beyond tolerance",
+      "did": "submitted ~50% short with no cause or note",
+      "happened": "refused: ❌ The variance is 50.00% against a tolerance of 1.0%. Select the cause of the discrepancy.",
+      "verdict": "refuses",
+      "frame": 9,
+      "url": "http://127.0.0.1:8008/reconciliation#"
+    },
+    {
+      "step": "3.1b",
+      "story": "Reconcile a batch",
+      "did": "entered litres received equal to dispatched",
+      "happened": "✅ BATCH-0088 reconciled — 0.00 L variance (0.00%) against a 1.0% tolerance.",
+      "verdict": "works",
+      "frame": 12,
+      "url": "http://127.0.0.1:8008/reconciliation#"
+    },
+    {
+      "step": "3.3",
+      "story": "Release a batch",
+      "did": "looked for a Release action",
+      "happened": "Release is offered",
+      "verdict": "works",
+      "frame": 13,
+      "url": "http://127.0.0.1:8008/reconciliation"
+    },
+    {
+      "step": "3.4",
+      "story": "Create a collection point",
+      "did": "looked for the add action",
+      "happened": "the add action is offered",
+      "verdict": "works",
+      "frame": 14,
+      "url": "http://127.0.0.1:8008/collection-points"
+    },
+    {
+      "step": "3.5",
+      "story": "See network totals",
+      "did": "read the dashboard scope banner",
+      "happened": "ℹ️ Figures cover Network-wide (unrestricted) · Own records only.",
+      "verdict": "works",
+      "frame": 15,
+      "url": "http://127.0.0.1:8008/"
+    }
+  ],
+  "console": []
+}

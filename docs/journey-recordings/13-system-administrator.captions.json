@@ -1,0 +1,125 @@
+{
+  "role": "13-system-administrator",
+  "frames": [
+    {
+      "n": 1,
+      "file": "001-sign-in-page-for-sadiq-ahmed-gondalfulbe-ng.png",
+      "caption": "sign-in page for sadiq.ahmed@gondalfulbe.ng",
+      "url": "http://127.0.0.1:8008/login"
+    },
+    {
+      "n": 2,
+      "file": "002-credentials-entered.png",
+      "caption": "credentials entered",
+      "url": "http://127.0.0.1:8008/login"
+    },
+    {
+      "n": 3,
+      "file": "003-after-submitting-credentials.png",
+      "caption": "after submitting credentials",
+      "url": "http://127.0.0.1:8008/login/verify"
+    },
+    {
+      "n": 4,
+      "file": "004-two-factor-code-entered-read-from-the-database.png",
+      "caption": "two-factor code entered (read from the database)",
+      "url": "http://127.0.0.1:8008/login/verify"
+    },
+    {
+      "n": 5,
+      "file": "005-after-submitting-the-two-factor-code.png",
+      "caption": "after submitting the two-factor code",
+      "url": "http://127.0.0.1:8008/"
+    },
+    {
+      "n": 6,
+      "file": "006-user-administration.png",
+      "caption": "user administration",
+      "url": "http://127.0.0.1:8008/admin/users"
+    },
+    {
+      "n": 7,
+      "file": "007-assign-role-modal.png",
+      "caption": "assign-role modal",
+      "url": "http://127.0.0.1:8008/admin/users/14#modal-assign"
+    },
+    {
+      "n": 8,
+      "file": "008-permission-tests.png",
+      "caption": "permission tests",
+      "url": "http://127.0.0.1:8008/admin/permission-tests"
+    },
+    {
+      "n": 9,
+      "file": "009-settings.png",
+      "caption": "settings",
+      "url": "http://127.0.0.1:8008/admin/settings"
+    }
+  ],
+  "findings": [
+    {
+      "step": "13.0",
+      "story": "Sign in",
+      "did": "credentials + emailed code",
+      "happened": "reached the dashboard",
+      "verdict": "works",
+      "frame": 5,
+      "url": "http://127.0.0.1:8008/"
+    },
+    {
+      "step": "13.1a",
+      "story": "Create a user",
+      "did": "looked for the add action",
+      "happened": "the add action is offered",
+      "verdict": "works",
+      "frame": 6,
+      "url": "http://127.0.0.1:8008/admin/users"
+    },
+    {
+      "step": "13.1b",
+      "story": "BR-31 — no password field on the admin form",
+      "did": "inspected every input on the users screen",
+      "happened": "no password field — activation is emailed",
+      "verdict": "works",
+      "frame": 6,
+      "url": "http://127.0.0.1:8008/admin/users"
+    },
+    {
+      "step": "13.3",
+      "story": "Assign a role with a scope",
+      "did": "opened the assign-role form",
+      "happened": "target picker present, multiple=true, 63 targets",
+      "verdict": "works",
+      "frame": 7,
+      "url": "http://127.0.0.1:8008/admin/users/14#modal-assign"
+    },
+    {
+      "step": "13.6",
+      "story": "Run a permission test",
+      "did": "opened the permission-test register",
+      "happened": "the register opens",
+      "verdict": "works",
+      "frame": 8,
+      "url": "http://127.0.0.1:8008/admin/permission-tests"
+    },
+    {
+      "step": "13.8",
+      "story": "CANNOT target production",
+      "did": "read the environment list",
+      "happened": "offered: development, staging",
+      "verdict": "refuses",
+      "frame": 8,
+      "url": "http://127.0.0.1:8008/admin/permission-tests"
+    },
+    {
+      "step": "13.7",
+      "story": "Change a grade rate",
+      "did": "opened Settings",
+      "happened": "settings opens",
+      "verdict": "works",
+      "frame": 9,
+      "url": "http://127.0.0.1:8008/admin/settings"
+    }
+  ],
+  "console": []
+}

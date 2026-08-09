@@ -1,0 +1,131 @@
+{
+  "role": "11-hr-manager",
+  "frames": [
+    {
+      "n": 1,
+      "file": "001-sign-in-page-for-rahma-sule-gondalfulbe-ng.png",
+      "caption": "sign-in page for rahma.sule@gondalfulbe.ng",
+      "url": "http://127.0.0.1:8008/login"
+    },
+    {
+      "n": 2,
+      "file": "002-credentials-entered.png",
+      "caption": "credentials entered",
+      "url": "http://127.0.0.1:8008/login"
+    },
+    {
+      "n": 3,
+      "file": "003-after-submitting-credentials.png",
+      "caption": "after submitting credentials",
+      "url": "http://127.0.0.1:8008/login/verify"
+    },
+    {
+      "n": 4,
+      "file": "004-two-factor-code-entered-read-from-the-database.png",
+      "caption": "two-factor code entered (read from the database)",
+      "url": "http://127.0.0.1:8008/login/verify"
+    },
+    {
+      "n": 5,
+      "file": "005-after-submitting-the-two-factor-code.png",
+      "caption": "after submitting the two-factor code",
+      "url": "http://127.0.0.1:8008/"
+    },
+    {
+      "n": 6,
+      "file": "006-employee-register.png",
+      "caption": "employee register",
+      "url": "http://127.0.0.1:8008/employees"
+    },
+    {
+      "n": 7,
+      "file": "007-departments.png",
+      "caption": "departments",
+      "url": "http://127.0.0.1:8008/departments"
+    },
+    {
+      "n": 8,
+      "file": "008-positions.png",
+      "caption": "positions",
+      "url": "http://127.0.0.1:8008/positions"
+    },
+    {
+      "n": 9,
+      "file": "009-request-leave-modal.png",
+      "caption": "request-leave modal",
+      "url": "http://127.0.0.1:8008/leave#modal-leave"
+    },
+    {
+      "n": 10,
+      "file": "010-approvals-queue-as-hr-manager.png",
+      "caption": "approvals queue as HR Manager",
+      "url": "http://127.0.0.1:8008/approvals"
+    }
+  ],
+  "findings": [
+    {
+      "step": "11.0",
+      "story": "Sign in",
+      "did": "credentials + emailed code",
+      "happened": "reached the dashboard",
+      "verdict": "works",
+      "frame": 5,
+      "url": "http://127.0.0.1:8008/"
+    },
+    {
+      "step": "11.1",
+      "story": "Add an employee",
+      "did": "looked for the add action",
+      "happened": "the add action is offered",
+      "verdict": "works",
+      "frame": 6,
+      "url": "http://127.0.0.1:8008/employees"
+    },
+    {
+      "step": "11.2",
+      "story": "Manage departments",
+      "did": "opened /departments and looked for an add action",
+      "happened": "the add action is offered",
+      "verdict": "works",
+      "frame": 7,
+      "url": "http://127.0.0.1:8008/departments"
+    },
+    {
+      "step": "11.3",
+      "story": "Manage positions",
+      "did": "opened /positions and looked for an add action",
+      "happened": "the add action is offered",
+      "verdict": "works",
+      "frame": 8,
+      "url": "http://127.0.0.1:8008/positions"
+    },
+    {
+      "step": "11.6",
+      "story": "Raise leave for someone else",
+      "did": "opened Request Leave",
+      "happened": "an employee picker is offered",
+      "verdict": "works",
+      "frame": 9,
+      "url": "http://127.0.0.1:8008/leave#modal-leave"
+    },
+    {
+      "step": "11.7",
+      "story": "CANNOT see milk or shop operations",
+      "did": "read the navigation links",
+      "happened": "no milk or shop links in the navigation",
+      "verdict": "refuses",
+      "frame": 9,
+      "url": "http://127.0.0.1:8008/leave#modal-leave"
+    },
+    {
+      "step": "11.8",
+      "story": "Open the approvals queue (was a known defect)",
+      "did": "navigated to /approvals",
+      "happened": "the queue opens",
+      "verdict": "works",
+      "frame": 10,
+      "url": "http://127.0.0.1:8008/approvals"
+    }
+  ],
+  "console": []
+}

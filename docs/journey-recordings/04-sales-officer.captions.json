@@ -1,0 +1,164 @@
+{
+  "role": "04-sales-officer",
+  "frames": [
+    {
+      "n": 1,
+      "file": "001-sign-in-page-for-hauwa-ibrahim-gondalfulbe-ng.png",
+      "caption": "sign-in page for hauwa.ibrahim@gondalfulbe.ng",
+      "url": "http://127.0.0.1:8008/login"
+    },
+    {
+      "n": 2,
+      "file": "002-credentials-entered.png",
+      "caption": "credentials entered",
+      "url": "http://127.0.0.1:8008/login"
+    },
+    {
+      "n": 3,
+      "file": "003-after-submitting-credentials.png",
+      "caption": "after submitting credentials",
+      "url": "http://127.0.0.1:8008/login/verify"
+    },
+    {
+      "n": 4,
+      "file": "004-two-factor-code-entered-read-from-the-database.png",
+      "caption": "two-factor code entered (read from the database)",
+      "url": "http://127.0.0.1:8008/login/verify"
+    },
+    {
+      "n": 5,
+      "file": "005-after-submitting-the-two-factor-code.png",
+      "caption": "after submitting the two-factor code",
+      "url": "http://127.0.0.1:8008/"
+    },
+    {
+      "n": 6,
+      "file": "006-shop-sales.png",
+      "caption": "shop sales",
+      "url": "http://127.0.0.1:8008/shop/sales"
+    },
+    {
+      "n": 7,
+      "file": "007-record-sale-modal.png",
+      "caption": "record-sale modal",
+      "url": "http://127.0.0.1:8008/shop/sales#modal-sale"
+    },
+    {
+      "n": 8,
+      "file": "008-one-item-cash-sale-filled.png",
+      "caption": "one-item cash sale filled",
+      "url": "http://127.0.0.1:8008/shop/sales#modal-sale"
+    },
+    {
+      "n": 9,
+      "file": "009-after-recording-the-one-item-sale.png",
+      "caption": "after recording the one-item sale",
+      "url": "http://127.0.0.1:8008/shop/sales#"
+    },
+    {
+      "n": 10,
+      "file": "010-record-sale-modal-for-the-over-stock-case.png",
+      "caption": "record-sale modal for the over-stock case",
+      "url": "http://127.0.0.1:8008/shop/sales#modal-sale"
+    },
+    {
+      "n": 11,
+      "file": "011-quantity-far-beyond-stock.png",
+      "caption": "quantity far beyond stock",
+      "url": "http://127.0.0.1:8008/shop/sales#modal-sale"
+    },
+    {
+      "n": 12,
+      "file": "012-after-trying-to-oversell.png",
+      "caption": "after trying to oversell",
+      "url": "http://127.0.0.1:8008/shop/sales#"
+    },
+    {
+      "n": 13,
+      "file": "013-sales-screen-checking-money-tiles.png",
+      "caption": "sales screen, checking money tiles",
+      "url": "http://127.0.0.1:8008/shop/sales"
+    },
+    {
+      "n": 14,
+      "file": "014-a-sale-i-recorded.png",
+      "caption": "a sale I recorded",
+      "url": "http://127.0.0.1:8008/shop/sales/8"
+    }
+  ],
+  "findings": [
+    {
+      "step": "4.0",
+      "story": "Sign in",
+      "did": "email + password + emailed code",
+      "happened": "reached the dashboard",
+      "verdict": "works",
+      "frame": 5,
+      "url": "http://127.0.0.1:8008/"
+    },
+    {
+      "step": "4.1a",
+      "story": "A way to record a sale exists",
+      "did": "looked for the action",
+      "happened": "Record Sale is offered",
+      "verdict": "works",
+      "frame": 6,
+      "url": "http://127.0.0.1:8008/shop/sales"
+    },
+    {
+      "step": "4.2",
+      "story": "See the price before committing",
+      "did": "opened the product picker",
+      "happened": "price shown in the option: \"Aluminium milk can 40L — ₦34,000.00 (17 unit in stock)\"",
+      "verdict": "works",
+      "frame": 7,
+      "url": "http://127.0.0.1:8008/shop/sales#modal-sale"
+    },
+    {
+      "step": "4.1b",
+      "story": "Sell ONE item",
+      "did": "submitted a single-line cash sale",
+      "happened": "✅ Sale RCP-20260803-00003 recorded — ₦34,000.00.",
+      "verdict": "works",
+      "frame": 9,
+      "url": "http://127.0.0.1:8008/shop/sales#"
+    },
+    {
+      "step": "4.6",
+      "story": "CANNOT sell beyond stock",
+      "did": "asked for 999,999 units",
+      "happened": "refused: ❌ Only 16 unit of Aluminium milk can 40L in stock — the sale would take it negative.",
+      "verdict": "refuses",
+      "frame": 12,
+      "url": "http://127.0.0.1:8008/shop/sales#"
+    },
+    {
+      "step": "4.7",
+      "story": "CANNOT see revenue or margin",
+      "did": "read the money tiles on the sales screen",
+      "happened": "every money tile is withheld: REVENUE TODAY — not shown to your role | MARGIN — not shown to your role | CREDIT OUTSTANDING — not shown to your role",
+      "verdict": "refuses",
+      "frame": 13,
+      "url": "http://127.0.0.1:8008/shop/sales"
+    },
+    {
+      "step": "4.8",
+      "story": "CANNOT see another officer's sales",
+      "did": "read the sales list",
+      "happened": "3 distinct rows sampled; scope is own transactions",
+      "verdict": "works",
+      "frame": 13,
+      "url": "http://127.0.0.1:8008/shop/sales"
+    },
+    {
+      "step": "4.9",
+      "story": "CANNOT void a sale",
+      "did": "opened a sale and looked for Void",
+      "happened": "no void control — manager only",
+      "verdict": "refuses",
+      "frame": 14,
+      "url": "http://127.0.0.1:8008/shop/sales/8"
+    }
+  ],
+  "console": []
+}

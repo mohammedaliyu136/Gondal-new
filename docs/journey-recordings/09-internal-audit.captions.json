@@ -1,0 +1,143 @@
+{
+  "role": "09-internal-audit",
+  "frames": [
+    {
+      "n": 1,
+      "file": "001-sign-in-page-for-umar-muduru-gondalfulbe-ng.png",
+      "caption": "sign-in page for umar.muduru@gondalfulbe.ng",
+      "url": "http://127.0.0.1:8008/login"
+    },
+    {
+      "n": 2,
+      "file": "002-credentials-entered.png",
+      "caption": "credentials entered",
+      "url": "http://127.0.0.1:8008/login"
+    },
+    {
+      "n": 3,
+      "file": "003-after-submitting-credentials.png",
+      "caption": "after submitting credentials",
+      "url": "http://127.0.0.1:8008/login/verify"
+    },
+    {
+      "n": 4,
+      "file": "004-two-factor-code-entered-read-from-the-database.png",
+      "caption": "two-factor code entered (read from the database)",
+      "url": "http://127.0.0.1:8008/login/verify"
+    },
+    {
+      "n": 5,
+      "file": "005-after-submitting-the-two-factor-code.png",
+      "caption": "after submitting the two-factor code",
+      "url": "http://127.0.0.1:8008/"
+    },
+    {
+      "n": 6,
+      "file": "006-audit-log.png",
+      "caption": "audit log",
+      "url": "http://127.0.0.1:8008/admin/audit-log"
+    },
+    {
+      "n": 7,
+      "file": "007-audit-log-filtered-to-a-denial-reference.png",
+      "caption": "audit log filtered to a denial reference",
+      "url": "http://127.0.0.1:8008/admin/audit-log?q=DENY-0001"
+    },
+    {
+      "n": 8,
+      "file": "008-audit-reading-deliveries.png",
+      "caption": "audit reading deliveries",
+      "url": "http://127.0.0.1:8008/milk-flow/deliveries"
+    },
+    {
+      "n": 9,
+      "file": "009-audit-reading-sales.png",
+      "caption": "audit reading sales",
+      "url": "http://127.0.0.1:8008/shop/sales"
+    },
+    {
+      "n": 10,
+      "file": "010-audit-reading-farmers.png",
+      "caption": "audit reading farmers",
+      "url": "http://127.0.0.1:8008/farmers"
+    },
+    {
+      "n": 11,
+      "file": "011-audit-reading-employees.png",
+      "caption": "audit reading employees",
+      "url": "http://127.0.0.1:8008/employees"
+    },
+    {
+      "n": 12,
+      "file": "012-audit-reading-logistics.png",
+      "caption": "audit reading logistics",
+      "url": "http://127.0.0.1:8008/logistics"
+    },
+    {
+      "n": 13,
+      "file": "013-read-only-check-deliveries.png",
+      "caption": "read-only check: deliveries",
+      "url": "http://127.0.0.1:8008/milk-flow/deliveries"
+    },
+    {
+      "n": 14,
+      "file": "014-read-only-check-sales.png",
+      "caption": "read-only check: sales",
+      "url": "http://127.0.0.1:8008/shop/sales"
+    },
+    {
+      "n": 15,
+      "file": "015-read-only-check-farmers.png",
+      "caption": "read-only check: farmers",
+      "url": "http://127.0.0.1:8008/farmers"
+    }
+  ],
+  "findings": [
+    {
+      "step": "9.0",
+      "story": "Sign in",
+      "did": "credentials + emailed code",
+      "happened": "reached the dashboard",
+      "verdict": "works",
+      "frame": 5,
+      "url": "http://127.0.0.1:8008/"
+    },
+    {
+      "step": "9.1",
+      "story": "Read the audit log",
+      "did": "opened Admin → Audit Log",
+      "happened": "25 entries listed",
+      "verdict": "works",
+      "frame": 6,
+      "url": "http://127.0.0.1:8008/admin/audit-log"
+    },
+    {
+      "step": "9.2",
+      "story": "Trace a refusal by its DENY reference",
+      "did": "filtered the log by DENY-0001",
+      "happened": "the refusal is found and shown",
+      "verdict": "works",
+      "frame": 7,
+      "url": "http://127.0.0.1:8008/admin/audit-log?q=DENY-0001"
+    },
+    {
+      "step": "9.4",
+      "story": "See every module",
+      "did": "opened each operational module in turn",
+      "happened": "every module readable",
+      "verdict": "works",
+      "frame": 12,
+      "url": "http://127.0.0.1:8008/logistics"
+    },
+    {
+      "step": "9.5",
+      "story": "CANNOT record anything operational",
+      "did": "swept the operational screens for create actions",
+      "happened": "no create action offered anywhere",
+      "verdict": "refuses",
+      "frame": 15,
+      "url": "http://127.0.0.1:8008/farmers"
+    }
+  ],
+  "console": []
+}

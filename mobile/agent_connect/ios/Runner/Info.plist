@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleDisplayName</key>
+	<string>Gondal AgentConnect</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>agent_connect</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(FLUTTER_BUILD_NAME)</string>
+	<key>CFBundleSignature</key>
+	<string>????</string>
+	<key>CFBundleVersion</key>
+	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+		<key>UISceneConfigurations</key>
+		<dict>
+			<key>UIWindowSceneSessionRoleApplication</key>
+			<array>
+				<dict>
+					<key>UISceneClassName</key>
+					<string>UIWindowScene</string>
+					<key>UISceneConfigurationName</key>
+					<string>flutter</string>
+					<key>UISceneDelegateClassName</key>
+					<string>$(PRODUCT_MODULE_NAME).SceneDelegate</string>
+					<key>UISceneStoryboardFile</key>
+					<string>Main</string>
+				</dict>
+			</array>
+		</dict>
+	</dict>
+	<key>UIApplicationSupportsIndirectInputEvents</key>
+	<true/>
+	<key>UILaunchStoryboardName</key>
+	<string>LaunchScreen</string>
+	<key>UIMainStoryboardFile</key>
+	<string>Main</string>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+
+	<!--
+	  iOS TERMINATES an app that asks for location or the camera without a
+	  usage description. `flutter create` writes none of these, so the first
+	  tap on "Take a photo" would not have failed gracefully — it would have
+	  killed the process in front of the agent.
+
+	  The strings are what the agent reads in the permission dialog, so they
+	  say what the data is for and that it is optional, rather than the
+	  boilerplate "This app requires access to your location".
+	-->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Records where a visit or revalidation was carried out, so it can be checked later. You can still save your work without it.</string>
+
+	<key>NSCameraUsageDescription</key>
+	<string>Take a photograph of a household, a herd or a signed form to attach to the record you are entering.</string>
+
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Attach a photograph you have already taken to a visit or revalidation.</string>
+
+	<!--
+	  Photos are only ever sent to the Gondal server, never written back to the
+	  camera roll — but image_picker links against PHPhotoLibrary, and iOS
+	  requires the add-usage string to be present when it does.
+	-->
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Not used — AgentConnect never saves photographs to your phone's library.</string>
+
+	<!--
+	  App Transport Security. Cleartext is permitted ONLY to the loopback
+	  addresses a developer runs `php artisan serve` on, mirroring
+	  android/app/src/main/res/xml/network_security_config.xml. It is not
+	  enabled globally: a pilot over plain HTTP would put an agent's bearer
+	  token and the farmer register on the wire in clear.
+	-->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSExceptionDomains</key>
+		<dict>
+			<key>localhost</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+			</dict>
+			<key>127.0.0.1</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+			</dict>
+		</dict>
+	</dict>
+</dict>
+</plist>

@@ -1,0 +1,92 @@
+{
+  "role": "08-department-head",
+  "frames": [
+    {
+      "n": 1,
+      "file": "001-sign-in-page-for-staff8-gondalfulbe-ng.png",
+      "caption": "sign-in page for staff8@gondalfulbe.ng",
+      "url": "http://127.0.0.1:8008/login"
+    },
+    {
+      "n": 2,
+      "file": "002-credentials-entered.png",
+      "caption": "credentials entered",
+      "url": "http://127.0.0.1:8008/login"
+    },
+    {
+      "n": 3,
+      "file": "003-after-submitting-credentials.png",
+      "caption": "after submitting credentials",
+      "url": "http://127.0.0.1:8008/login/verify"
+    },
+    {
+      "n": 4,
+      "file": "004-two-factor-code-entered-read-from-the-database.png",
+      "caption": "two-factor code entered (read from the database)",
+      "url": "http://127.0.0.1:8008/login/verify"
+    },
+    {
+      "n": 5,
+      "file": "005-after-submitting-the-two-factor-code.png",
+      "caption": "after submitting the two-factor code",
+      "url": "http://127.0.0.1:8008/"
+    },
+    {
+      "n": 6,
+      "file": "006-requisitions.png",
+      "caption": "requisitions",
+      "url": "http://127.0.0.1:8008/requisitions"
+    },
+    {
+      "n": 7,
+      "file": "007-approvals-queue-as-department-head.png",
+      "caption": "approvals queue as department head",
+      "url": "http://127.0.0.1:8008/approvals"
+    },
+    {
+      "n": 8,
+      "file": "008-requisitions-list-checking-scope.png",
+      "caption": "requisitions list, checking scope",
+      "url": "http://127.0.0.1:8008/requisitions"
+    }
+  ],
+  "findings": [
+    {
+      "step": "8.0",
+      "story": "Sign in",
+      "did": "credentials + emailed code",
+      "happened": "reached the dashboard",
+      "verdict": "works",
+      "frame": 5,
+      "url": "http://127.0.0.1:8008/"
+    },
+    {
+      "step": "8.1",
+      "story": "Raise a requisition",
+      "did": "looked for the raise action",
+      "happened": "a raise action is offered",
+      "verdict": "works",
+      "frame": 6,
+      "url": "http://127.0.0.1:8008/requisitions"
+    },
+    {
+      "step": "8.2",
+      "story": "Approve one from your department",
+      "did": "opened the approvals queue",
+      "happened": "4 items waiting",
+      "verdict": "works",
+      "frame": 7,
+      "url": "http://127.0.0.1:8008/approvals"
+    },
+    {
+      "step": "8.5",
+      "story": "CANNOT see another department's requisitions",
+      "did": "read the requisitions list",
+      "happened": "departments visible: Logistics",
+      "verdict": "works",
+      "frame": 8,
+      "url": "http://127.0.0.1:8008/requisitions"
+    }
+  ],
+  "console": []
+}

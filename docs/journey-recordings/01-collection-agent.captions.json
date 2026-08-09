@@ -1,0 +1,340 @@
+{
+  "role": "01-collection-agent",
+  "frames": [
+    {
+      "n": 1,
+      "file": "001-sign-in-page-for-sani-bello-gondalfulbe-ng.png",
+      "caption": "sign-in page for sani.bello@gondalfulbe.ng",
+      "url": "http://127.0.0.1:8008/login"
+    },
+    {
+      "n": 2,
+      "file": "002-credentials-entered.png",
+      "caption": "credentials entered",
+      "url": "http://127.0.0.1:8008/login"
+    },
+    {
+      "n": 3,
+      "file": "003-after-submitting-credentials.png",
+      "caption": "after submitting credentials",
+      "url": "http://127.0.0.1:8008/login/verify"
+    },
+    {
+      "n": 4,
+      "file": "004-two-factor-code-entered-read-from-the-database.png",
+      "caption": "two-factor code entered (read from the database)",
+      "url": "http://127.0.0.1:8008/login/verify"
+    },
+    {
+      "n": 5,
+      "file": "005-after-submitting-the-two-factor-code.png",
+      "caption": "after submitting the two-factor code",
+      "url": "http://127.0.0.1:8008/"
+    },
+    {
+      "n": 6,
+      "file": "006-deliveries-list.png",
+      "caption": "deliveries list",
+      "url": "http://127.0.0.1:8008/milk-flow/deliveries"
+    },
+    {
+      "n": 7,
+      "file": "007-record-delivery-modal-open.png",
+      "caption": "record-delivery modal open",
+      "url": "http://127.0.0.1:8008/milk-flow/deliveries#modal-record"
+    },
+    {
+      "n": 8,
+      "file": "008-delivery-form-filled-22-l-presented.png",
+      "caption": "delivery form filled: 22 L presented",
+      "url": "http://127.0.0.1:8008/milk-flow/deliveries#modal-record"
+    },
+    {
+      "n": 9,
+      "file": "009-after-saving-the-delivery.png",
+      "caption": "after saving the delivery",
+      "url": "http://127.0.0.1:8008/milk-flow/deliveries/539#"
+    },
+    {
+      "n": 10,
+      "file": "010-record-modal-again-for-save-add-another.png",
+      "caption": "record modal again for Save & add another",
+      "url": "http://127.0.0.1:8008/milk-flow/deliveries#modal-record"
+    },
+    {
+      "n": 11,
+      "file": "011-after-save-add-another.png",
+      "caption": "after Save & add another",
+      "url": "http://127.0.0.1:8008/milk-flow/deliveries?point=1#modal-record"
+    },
+    {
+      "n": 12,
+      "file": "012-record-modal-for-a-rejection.png",
+      "caption": "record modal for a rejection",
+      "url": "http://127.0.0.1:8008/milk-flow/deliveries#modal-record"
+    },
+    {
+      "n": 13,
+      "file": "013-20-l-presented-5-l-rejected-with-a-reason.png",
+      "caption": "20 L presented, 5 L rejected with a reason",
+      "url": "http://127.0.0.1:8008/milk-flow/deliveries#modal-record"
+    },
+    {
+      "n": 14,
+      "file": "014-after-saving-the-rejection.png",
+      "caption": "after saving the rejection",
+      "url": "http://127.0.0.1:8008/milk-flow/deliveries/541#"
+    },
+    {
+      "n": 15,
+      "file": "015-record-modal-for-the-cut-off-case.png",
+      "caption": "record modal for the cut-off case",
+      "url": "http://127.0.0.1:8008/milk-flow/deliveries#modal-record"
+    },
+    {
+      "n": 16,
+      "file": "016-delivery-timed-09-45-after-the-07-00-cut-off.png",
+      "caption": "delivery timed 09:45, after the 07:00 cut-off",
+      "url": "http://127.0.0.1:8008/milk-flow/deliveries#modal-record"
+    },
+    {
+      "n": 17,
+      "file": "017-after-submitting-past-the-cut-off.png",
+      "caption": "after submitting past the cut-off",
+      "url": "http://127.0.0.1:8008/milk-flow/deliveries#"
+    },
+    {
+      "n": 18,
+      "file": "018-farmers-register.png",
+      "caption": "farmers register",
+      "url": "http://127.0.0.1:8008/farmers"
+    },
+    {
+      "n": 19,
+      "file": "019-enrol-farmer-modal.png",
+      "caption": "enrol-farmer modal",
+      "url": "http://127.0.0.1:8008/farmers#modal-enrol"
+    },
+    {
+      "n": 20,
+      "file": "020-enrol-form-filled.png",
+      "caption": "enrol form filled",
+      "url": "http://127.0.0.1:8008/farmers#modal-enrol"
+    },
+    {
+      "n": 21,
+      "file": "021-after-enrolling-the-farmer.png",
+      "caption": "after enrolling the farmer",
+      "url": "http://127.0.0.1:8008/farmers/1847#"
+    },
+    {
+      "n": 22,
+      "file": "022-consignments-list.png",
+      "caption": "consignments list",
+      "url": "http://127.0.0.1:8008/milk-flow/consignments"
+    },
+    {
+      "n": 23,
+      "file": "023-dispatch-modal-open.png",
+      "caption": "dispatch modal open",
+      "url": "http://127.0.0.1:8008/milk-flow/consignments#modal-dispatch"
+    },
+    {
+      "n": 24,
+      "file": "024-dispatch-modal-3-deliveries-available.png",
+      "caption": "dispatch modal, 3 deliveries available",
+      "url": "http://127.0.0.1:8008/milk-flow/consignments#modal-dispatch"
+    },
+    {
+      "n": 25,
+      "file": "025-after-dispatching.png",
+      "caption": "after dispatching",
+      "url": "http://127.0.0.1:8008/milk-flow/consignments#"
+    },
+    {
+      "n": 26,
+      "file": "026-consignments-checking-for-grade-controls.png",
+      "caption": "consignments, checking for grade controls",
+      "url": "http://127.0.0.1:8008/milk-flow/consignments"
+    },
+    {
+      "n": 27,
+      "file": "027-deliveries-checking-scope.png",
+      "caption": "deliveries, checking scope",
+      "url": "http://127.0.0.1:8008/milk-flow/deliveries"
+    },
+    {
+      "n": 28,
+      "file": "028-attempting-payroll.png",
+      "caption": "attempting payroll",
+      "url": "http://127.0.0.1:8008/payroll"
+    }
+  ],
+  "findings": [
+    {
+      "step": "1.0",
+      "story": "Sign in (with two-factor)",
+      "did": "email + password + emailed code",
+      "happened": "reached the dashboard",
+      "verdict": "works",
+      "frame": 5,
+      "url": "http://127.0.0.1:8008/"
+    },
+    {
+      "step": "1.1a",
+      "story": "A way to record a delivery exists",
+      "did": "looked for the action on /milk-flow/deliveries",
+      "happened": "the + Record Delivery action is offered",
+      "verdict": "works",
+      "frame": 6,
+      "url": "http://127.0.0.1:8008/milk-flow/deliveries"
+    },
+    {
+      "step": "1.1b",
+      "story": "Record a delivery (22 L)",
+      "did": "submitted the record-delivery form",
+      "happened": "✅ DEL-20260803-0019 recorded — 22 L accepted from Amina Sale.",
+      "verdict": "works",
+      "frame": 9,
+      "url": "http://127.0.0.1:8008/milk-flow/deliveries/539#"
+    },
+    {
+      "step": "1.1c",
+      "story": "The modal closes after saving",
+      "did": "checked for .modal.open after the redirect",
+      "happened": "the modal closed",
+      "verdict": "works",
+      "frame": 9,
+      "url": "http://127.0.0.1:8008/milk-flow/deliveries/539#"
+    },
+    {
+      "step": "1.2",
+      "story": "Save & add another returns to the open form",
+      "did": "pressed Save & add another",
+      "happened": "returned to the open form",
+      "verdict": "works",
+      "frame": 11,
+      "url": "http://127.0.0.1:8008/milk-flow/deliveries?point=1#modal-record"
+    },
+    {
+      "step": "1.3",
+      "story": "Record a rejection (20 presented, 5 rejected → 15 accepted)",
+      "did": "submitted with a rejection reason",
+      "happened": "✅ DEL-20260803-0021 recorded — 15 L accepted from Amina Sale.",
+      "verdict": "works",
+      "frame": 14,
+      "url": "http://127.0.0.1:8008/milk-flow/deliveries/541#"
+    },
+    {
+      "step": "1.4",
+      "story": "Cannot record after the cut-off",
+      "did": "submitted a delivery timed 09:45",
+      "happened": "refused: ❌ This delivery is after the 07:00 cut-off. Reject it in full for \"Failure to meet delivery time\", or record a supervisor override with a reason.",
+      "verdict": "refuses",
+      "frame": 17,
+      "url": "http://127.0.0.1:8008/milk-flow/deliveries#"
+    },
+    {
+      "step": "1.4b",
+      "story": "The refusal carries no rule code",
+      "did": "looked for BR-xx in the page",
+      "happened": "plain language, no rule code",
+      "verdict": "works",
+      "frame": 17,
+      "url": "http://127.0.0.1:8008/milk-flow/deliveries#"
+    },
+    {
+      "step": "1.5",
+      "story": "Typed work survives the refusal",
+      "did": "checked the reopened form",
+      "happened": "modal open=true, presented=\"31\", notes kept=true",
+      "verdict": "works",
+      "frame": 17,
+      "url": "http://127.0.0.1:8008/milk-flow/deliveries#"
+    },
+    {
+      "step": "1.6",
+      "story": "Enrol a farmer",
+      "did": "Community → Farmers, then looked for an add action",
+      "happened": "nav link present=true; the add action is offered",
+      "verdict": "works",
+      "frame": 18,
+      "url": "http://127.0.0.1:8008/farmers"
+    },
+    {
+      "step": "1.6b",
+      "story": "The enrol-farmer form opens",
+      "did": "followed the + Enrol Farmer action",
+      "happened": "modal modal-enrol opened",
+      "verdict": "works",
+      "frame": 19,
+      "url": "http://127.0.0.1:8008/farmers#modal-enrol"
+    },
+    {
+      "step": "1.6c",
+      "story": "Enrol a farmer actually creates one, and the enroller can see it",
+      "did": "submitted the enrol form and followed the redirect",
+      "happened": "landed on the new farmer record: http://127.0.0.1:8008/farmers/1847#",
+      "verdict": "works",
+      "frame": 21,
+      "url": "http://127.0.0.1:8008/farmers/1847#"
+    },
+    {
+      "step": "1.7",
+      "story": "Dispatch a consignment",
+      "did": "looked for the dispatch action",
+      "happened": "the dispatch action is offered",
+      "verdict": "works",
+      "frame": 22,
+      "url": "http://127.0.0.1:8008/milk-flow/consignments"
+    },
+    {
+      "step": "1.7b",
+      "story": "Dispatch actually creates a consignment",
+      "did": "ticked the morning deliveries and dispatched",
+      "happened": "✅ CNS-0461 dispatched — 55 L.",
+      "verdict": "works",
+      "frame": 25,
+      "url": "http://127.0.0.1:8008/milk-flow/consignments#"
+    },
+    {
+      "step": "1.8",
+      "story": "CANNOT grade milk",
+      "did": "looked for any grade control",
+      "happened": "no grade control offered",
+      "verdict": "refuses",
+      "frame": 26,
+      "url": "http://127.0.0.1:8008/milk-flow/consignments"
+    },
+    {
+      "step": "1.9",
+      "story": "CANNOT adjust a volume",
+      "did": "looked for an adjust control",
+      "happened": "no adjust control offered",
+      "verdict": "refuses",
+      "frame": 26,
+      "url": "http://127.0.0.1:8008/milk-flow/consignments"
+    },
+    {
+      "step": "1.10",
+      "story": "CANNOT see another point",
+      "did": "read the delivery list and its scope note",
+      "happened": "scope note: \"Farmer deliveries at collection points · Mon, 3 Aug 2026 | After the point’s cut-off, reject the delivery in full or record a supervisor override below. | Accepted litres are worked out for you as pre\"; points visible: [\"Tudun Wada\"]",
+      "verdict": "works",
+      "frame": 27,
+      "url": "http://127.0.0.1:8008/milk-flow/deliveries"
+    },
+    {
+      "step": "1.11",
+      "story": "CANNOT open payroll",
+      "did": "navigated to /payroll",
+      "happened": "status 403, quotable reference DENY-0016",
+      "verdict": "refuses",
+      "frame": 28,
+      "url": "http://127.0.0.1:8008/payroll"
+    }
+  ],
+  "console": [
+    "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+  ]
+}
