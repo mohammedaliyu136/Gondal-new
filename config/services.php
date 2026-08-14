@@ -35,4 +35,23 @@ return [
         ],
     ],
 
+    'paystack' => [
+        'public_key' => env('PAYSTACK_PUBLIC_KEY', ''),
+        'secret_key' => env('PAYSTACK_SECRET_KEY', ''),
+        'merchant_email' => env('PAYSTACK_MERCHANT_EMAIL', ''),
+        'base_url' => env('PAYSTACK_BASE_URL', 'https://api.paystack.co'),
+    ],
+
+    'monnify' => [
+        'api_key' => env('MONNIFY_API_KEY', ''),
+        'secret_key' => env('MONNIFY_SECRET_KEY', ''),
+        'contract_code' => env('MONNIFY_CONTRACT_CODE', ''),
+        'base_url' => env('MONNIFY_BASE_URL', 'https://sandbox.monnify.com'),
+    ],
+
+    'zainpay' => [
+        'public_key' => env('ZAINPAY_PUBLIC_KEY', ''),
+        'zainbox_code' => env('ZAINPAY_ZAINBOX_CODE', ''),
+        'base_url' => env('ZAINPAY_BASE_URL', 'https://sandbox.zainpay.ng'),
+    ],
 ];

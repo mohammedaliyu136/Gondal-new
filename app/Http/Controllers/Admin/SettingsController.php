@@ -68,6 +68,29 @@ class SettingsController extends Controller
                 'loan_book_enabled' => Settings::boolean('cooperative.loan_book_enabled', false),
                 'low_stock_warning' => Settings::boolean('shop.low_stock_warning_enabled', true),
             ],
+            'paymentSettings' => [
+                'default_gateway' => Settings::string('payment.default_gateway', 'paystack'),
+                'paystack' => [
+                    'enabled' => Settings::boolean('payment.paystack.enabled', true),
+                    'mode' => Settings::string('payment.paystack.mode', 'test'),
+                    'public_key' => Settings::string('payment.paystack.public_key', config('services.paystack.public_key', '')),
+                    'secret_key' => Settings::string('payment.paystack.secret_key', config('services.paystack.secret_key', '')),
+                    'merchant_email' => Settings::string('payment.paystack.merchant_email', config('services.paystack.merchant_email', '')),
+                ],
+                'monnify' => [
+                    'enabled' => Settings::boolean('payment.monnify.enabled', false),
+                    'mode' => Settings::string('payment.monnify.mode', 'test'),
+                    'api_key' => Settings::string('payment.monnify.api_key', config('services.monnify.api_key', '')),
+                    'secret_key' => Settings::string('payment.monnify.secret_key', config('services.monnify.secret_key', '')),
+                    'contract_code' => Settings::string('payment.monnify.contract_code', config('services.monnify.contract_code', '')),
+                ],
+                'zainpay' => [
+                    'enabled' => Settings::boolean('payment.zainpay.enabled', false),
+                    'mode' => Settings::string('payment.zainpay.mode', 'test'),
+                    'public_key' => Settings::string('payment.zainpay.public_key', config('services.zainpay.public_key', '')),
+                    'zainbox_code' => Settings::string('payment.zainpay.zainbox_code', config('services.zainpay.zainbox_code', '')),
+                ],
+            ],
             // NG-1 / NG-2 — the disabled-modules panel, from data.
             'disabledModules' => Navigation::disabledModules(),
             'projectsDisabledOn' => Settings::string('modules.projects_disabled_on', ''),
@@ -86,8 +109,28 @@ class SettingsController extends Controller
             'cooperative_default_levy_pct' => ['required', 'numeric', 'min:0', 'max:100'],
             'cooperative_default_social_contribution' => ['required', 'string'],
             'shop_low_stock_warning_enabled' => ['nullable', 'boolean'],
+
+            // Payment settings
+            'payment_default_gateway' => ['required', 'in:paystack,monnify,zainpay'],
+            'payment_paystack_enabled' => ['nullable', 'boolean'],
+            'payment_paystack_mode' => ['required', 'in:test,live'],
+            'payment_paystack_public_key' => ['nullable', 'string', 'max:255'],
+            'payment_paystack_secret_key' => ['nullable', 'string', 'max:255'],
+            'payment_paystack_merchant_email' => ['nullable', 'email', 'max:255'],
+            
+            'payment_monnify_enabled' => ['nullable', 'boolean'],
+            'payment_monnify_mode' => ['required', 'in:test,live'],
+            'payment_monnify_api_key' => ['nullable', 'string', 'max:255'],
+            'payment_monnify_secret_key' => ['nullable', 'string', 'max:255'],
+            'payment_monnify_contract_code' => ['nullable', 'string', 'max:255'],
+
+            'payment_zainpay_enabled' => ['nullable', 'boolean'],
+            'payment_zainpay_mode' => ['required', 'in:test,live'],
+            'payment_zainpay_public_key' => ['nullable', 'string', 'max:255'],
+            'payment_zainpay_zainbox_code' => ['nullable', 'string', 'max:255'],
         ], [], [
             'milk_delivery_cutoff_latest_override' => 'latest permitted cut-off',
+            'payment_default_gateway' => 'default payment gateway',
         ]);
 
         Settings::put([
@@ -98,7 +141,31 @@ class SettingsController extends Controller
             'cooperative.default_levy_pct' => (string) $validated['cooperative_default_levy_pct'],
             'cooperative.default_social_contribution_minor' => Money::fromMajor($validated['cooperative_default_social_contribution']) ?? 0,
             'shop.low_stock_warning_enabled' => $request->boolean('shop_low_stock_warning_enabled'),
+
+            // Payment settings
+            'payment.default_gateway' => $validated['payment_default_gateway'],
+            'payment.paystack.enabled' => $request->boolean('payment_paystack_enabled'),
+            'payment.paystack.mode' => $validated['payment_paystack_mode'],
+            'payment.paystack.public_key' => (string) ($validated['payment_paystack_public_key'] ?? ''),
+            'payment.paystack.secret_key' => (string) ($validated['payment_paystack_secret_key'] ?? ''),
+            'payment.paystack.merchant_email' => (string) ($validated['payment_paystack_merchant_email'] ?? ''),
+
+            'payment.monnify.enabled' => $request->boolean('payment_monnify_enabled'),
+            'payment.monnify.mode' => $validated['payment_monnify_mode'],
+            'payment.monnify.api_key' => (string) ($validated['payment_monnify_api_key'] ?? ''),
+            'payment.monnify.secret_key' => (string) ($validated['payment_monnify_secret_key'] ?? ''),
+            'payment.monnify.contract_code' => (string) ($validated['payment_monnify_contract_code'] ?? ''),
+
+            'payment.zainpay.enabled' => $request->boolean('payment_zainpay_enabled'),
+            'payment.zainpay.mode' => $validated['payment_zainpay_mode'],
+            'payment.zainpay.public_key' => (string) ($validated['payment_zainpay_public_key'] ?? ''),
+            'payment.zainpay.zainbox_code' => (string) ($validated['payment_zainpay_zainbox_code'] ?? ''),
         ], $this->currentUser(), 'general');
+
+        // Flush API client memoized instances
+        \App\Services\Payment\PaymentApi\PaystackApi::flush();
+        \App\Services\Payment\PaymentApi\MonnifyApi::flush();
+        \App\Services\Payment\PaymentApi\ZainpayApi::flush();
 
         return back()->with('success', 'Settings saved. Every module that reads them picks the change up immediately.');
     }

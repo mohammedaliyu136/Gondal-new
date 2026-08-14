@@ -35,6 +35,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('role_user', function (Blueprint $table): void {
+            if (in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true)) {
+                $table->index('role_id');
+            }
             $table->dropUnique(self::INDEX);
         });
 

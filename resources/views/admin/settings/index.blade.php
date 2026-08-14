@@ -29,6 +29,7 @@
     <a href="#locations" class="tab">Locations &amp; Routes</a>
     <a href="#cooperatives" class="tab">Cooperatives</a>
     <a href="#shop" class="tab">Shop &amp; Inventory</a>
+    <a href="#payments" class="tab">Payment Gateways</a>
     <a href="{{ route('admin.settings.workflows') }}" class="tab">Approval Workflows</a>
     <a href="#numbering" class="tab">Numbering</a>
   </div>
@@ -224,8 +225,168 @@
             </div>
           </div>
 
+          <div class="card-body" id="payments">
+            <div class="divider"></div>
+            <div class="flex" style="justify-content:space-between;align-items:center;margin-bottom:16px">
+              <div>
+                <h3 style="margin-bottom:4px">Payment Gateways</h3>
+                <p class="text-muted text-small" style="margin:0">Configure online payment gateways (Paystack, Monnify, Zainpay) and API credentials</p>
+              </div>
+              <div>
+                <span class="badge {{ $paymentSettings['paystack']['enabled'] || $paymentSettings['monnify']['enabled'] || $paymentSettings['zainpay']['enabled'] ? 'success' : 'muted' }}">
+                  {{ $paymentSettings['paystack']['enabled'] || $paymentSettings['monnify']['enabled'] || $paymentSettings['zainpay']['enabled'] ? 'Gateways Active' : 'All Disabled' }}
+                </span>
+              </div>
+            </div>
+
+            <div class="form-grid mb-16">
+              <div class="field full">
+                <label for="st-pay-default">Default Payment Gateway <span class="req">*</span></label>
+                <select id="st-pay-default" name="payment_default_gateway" required>
+                  <option value="paystack" @selected($paymentSettings['default_gateway'] === 'paystack')>Paystack (Cards, Bank Transfer, USSD)</option>
+                  <option value="monnify" @selected($paymentSettings['default_gateway'] === 'monnify')>Monnify (Dynamic Virtual Accounts, Cards)</option>
+                  <option value="zainpay" @selected($paymentSettings['default_gateway'] === 'zainpay')>Zainpay (Virtual Accounts, Cards)</option>
+                </select>
+                <div class="hint">The primary gateway used for online collections and checkout sessions across the system.</div>
+              </div>
+            </div>
+
+            {{-- Paystack Configuration Card --}}
+            <div class="card mb-16" style="border:1px solid #e2e8f0;background:#f8fafc">
+              <div class="card-head" style="padding:12px 16px;background:#fff;border-bottom:1px solid #e2e8f0">
+                <div class="flex" style="align-items:center;gap:12px">
+                  <label class="check-label" style="font-weight:600;font-size:1rem">
+                    <input type="checkbox" name="payment_paystack_enabled" value="1"
+                           @checked($paymentSettings['paystack']['enabled']) />
+                    Paystack
+                  </label>
+                  <span class="badge {{ $paymentSettings['paystack']['mode'] === 'live' ? 'success' : 'info' }} plain">
+                    {{ strtoupper($paymentSettings['paystack']['mode']) }} MODE
+                  </span>
+                </div>
+                <div class="text-small text-muted">Supports Card, Bank Transfer, USSD</div>
+              </div>
+              <div class="card-body" style="padding:16px">
+                <div class="form-grid">
+                  <div class="field">
+                    <label for="st-paystack-mode">Environment Mode <span class="req">*</span></label>
+                    <select id="st-paystack-mode" name="payment_paystack_mode" required>
+                      <option value="test" @selected($paymentSettings['paystack']['mode'] === 'test')>Test / Sandbox</option>
+                      <option value="live" @selected($paymentSettings['paystack']['mode'] === 'live')>Live / Production</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label for="st-paystack-email">Merchant / Contact Email</label>
+                    <input type="email" id="st-paystack-email" name="payment_paystack_merchant_email"
+                           value="{{ $paymentSettings['paystack']['merchant_email'] }}" placeholder="e.g. finance@gondal.ng" />
+                  </div>
+                  <div class="field">
+                    <label for="st-paystack-pub">Public Key</label>
+                    <input type="text" id="st-paystack-pub" name="payment_paystack_public_key"
+                           value="{{ $paymentSettings['paystack']['public_key'] }}" placeholder="pk_test_... or pk_live_..." autocomplete="off" />
+                  </div>
+                  <div class="field">
+                    <label for="st-paystack-sec">Secret Key</label>
+                    <input type="password" id="st-paystack-sec" name="payment_paystack_secret_key"
+                           value="{{ $paymentSettings['paystack']['secret_key'] }}" placeholder="sk_test_... or sk_live_..." autocomplete="off" />
+                  </div>
+                </div>
+                <div class="hint mt-16">
+                  <strong>Paystack Webhook URL:</strong> <code>{{ url('/api/payments/webhook/paystack') }}</code>
+                </div>
+              </div>
+            </div>
+
+            {{-- Monnify Configuration Card --}}
+            <div class="card mb-16" style="border:1px solid #e2e8f0;background:#f8fafc">
+              <div class="card-head" style="padding:12px 16px;background:#fff;border-bottom:1px solid #e2e8f0">
+                <div class="flex" style="align-items:center;gap:12px">
+                  <label class="check-label" style="font-weight:600;font-size:1rem">
+                    <input type="checkbox" name="payment_monnify_enabled" value="1"
+                           @checked($paymentSettings['monnify']['enabled']) />
+                    Monnify
+                  </label>
+                  <span class="badge {{ $paymentSettings['monnify']['mode'] === 'live' ? 'success' : 'info' }} plain">
+                    {{ strtoupper($paymentSettings['monnify']['mode']) }} MODE
+                  </span>
+                </div>
+                <div class="text-small text-muted">Supports Reserved Accounts, Dynamic Accounts, Cards</div>
+              </div>
+              <div class="card-body" style="padding:16px">
+                <div class="form-grid">
+                  <div class="field">
+                    <label for="st-monnify-mode">Environment Mode <span class="req">*</span></label>
+                    <select id="st-monnify-mode" name="payment_monnify_mode" required>
+                      <option value="test" @selected($paymentSettings['monnify']['mode'] === 'test')>Test / Sandbox</option>
+                      <option value="live" @selected($paymentSettings['monnify']['mode'] === 'live')>Live / Production</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label for="st-monnify-contract">Contract Code</label>
+                    <input type="text" id="st-monnify-contract" name="payment_monnify_contract_code"
+                           value="{{ $paymentSettings['monnify']['contract_code'] }}" placeholder="e.g. 1234567890" />
+                  </div>
+                  <div class="field">
+                    <label for="st-monnify-api">API Key</label>
+                    <input type="text" id="st-monnify-api" name="payment_monnify_api_key"
+                           value="{{ $paymentSettings['monnify']['api_key'] }}" placeholder="MK_TEST_... or MK_PROD_..." autocomplete="off" />
+                  </div>
+                  <div class="field">
+                    <label for="st-monnify-sec">Secret Key</label>
+                    <input type="password" id="st-monnify-sec" name="payment_monnify_secret_key"
+                           value="{{ $paymentSettings['monnify']['secret_key'] }}" placeholder="Monnify Secret Key" autocomplete="off" />
+                  </div>
+                </div>
+                <div class="hint mt-16">
+                  <strong>Monnify Webhook URL:</strong> <code>{{ url('/api/payments/webhook/monnify') }}</code>
+                </div>
+              </div>
+            </div>
+
+            {{-- Zainpay Configuration Card --}}
+            <div class="card mb-16" style="border:1px solid #e2e8f0;background:#f8fafc">
+              <div class="card-head" style="padding:12px 16px;background:#fff;border-bottom:1px solid #e2e8f0">
+                <div class="flex" style="align-items:center;gap:12px">
+                  <label class="check-label" style="font-weight:600;font-size:1rem">
+                    <input type="checkbox" name="payment_zainpay_enabled" value="1"
+                           @checked($paymentSettings['zainpay']['enabled']) />
+                    Zainpay
+                  </label>
+                  <span class="badge {{ $paymentSettings['zainpay']['mode'] === 'live' ? 'success' : 'info' }} plain">
+                    {{ strtoupper($paymentSettings['zainpay']['mode']) }} MODE
+                  </span>
+                </div>
+                <div class="text-small text-muted">Supports Virtual Accounts, Wallets &amp; Card Processing</div>
+              </div>
+              <div class="card-body" style="padding:16px">
+                <div class="form-grid">
+                  <div class="field">
+                    <label for="st-zainpay-mode">Environment Mode <span class="req">*</span></label>
+                    <select id="st-zainpay-mode" name="payment_zainpay_mode" required>
+                      <option value="test" @selected($paymentSettings['zainpay']['mode'] === 'test')>Test / Sandbox</option>
+                      <option value="live" @selected($paymentSettings['zainpay']['mode'] === 'live')>Live / Production</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label for="st-zainpay-box">Zainbox Code</label>
+                    <input type="text" id="st-zainpay-box" name="payment_zainpay_zainbox_code"
+                           value="{{ $paymentSettings['zainpay']['zainbox_code'] }}" placeholder="e.g. zn_box_..." />
+                  </div>
+                  <div class="field full">
+                    <label for="st-zainpay-pub">Public Key / Bearer Token</label>
+                    <input type="password" id="st-zainpay-pub" name="payment_zainpay_public_key"
+                           value="{{ $paymentSettings['zainpay']['public_key'] }}" placeholder="Bearer token / Public Key" autocomplete="off" />
+                  </div>
+                </div>
+                <div class="hint mt-16">
+                  <strong>Zainpay Webhook URL:</strong> <code>{{ url('/api/payments/webhook/zainpay') }}</code>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div class="action-bar">
-            <div class="ab-note">Changes to rates and reasons affect every module that reads them.</div>
+            <div class="ab-note">Changes to rates, reasons and payment settings affect every module that reads them.</div>
             <button type="submit" class="btn btn-primary">Save settings</button>
           </div>
         </div>
