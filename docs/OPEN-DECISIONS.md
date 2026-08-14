@@ -11,10 +11,19 @@ decisions says on the screen that it is open, so a reviewer can tell "undecided"
 
 ## 1. Where does the payment module live? (§15.1)
 
-**Blocking Phase 7 only.**
+**Answered by build, not by the meeting — confirm it.**
 
-Farmer payments and transport payments are designed nowhere. The review meeting debated placement and did
-not conclude.
+The review meeting debated placement and did not conclude. Phase 7 was then built against the second
+option below: a separate Finance module with its own `finance.*` permission group, surfaced in an
+**Accounting** nav group beside Payroll. Transport payments are the one departure — they sit with
+logistics under `logistics.payments.view`, because a trip's tariff is logistics data and a rider is
+not a farmer.
+
+This is recorded here as a decision **taken by recommendation**, which is not the same as agreed. It is
+still reversible: the boundary is a permission group and a nav group, not a schema shape. What is no
+longer reversible for free is that money has a home — see `docs/PLAN-FARMER-PAYMENTS.md` for the three
+policy calls (§1.1 pooled grading, §1.2 cash at the point, §1.6 debt recovery capped at 50%) that were
+taken the same way and still need a yes.
 
 ### The question
 
@@ -44,22 +53,30 @@ BR-13 to BR-16 make deferring this cheap. The data a payment run needs is captur
   tomorrow cannot rewrite what was payable yesterday (BR-14);
 - `litres_payable` is accepted volume plus signed adjustments, and rejected-grade volume is excluded
   (BR-15, BR-16);
-- `trips` carries its tariff and a `payment_run_id` column with **no foreign key** — deliberately, because
-  the table it would point at does not exist yet (§6.3);
-- `pending_farmer_deductions` accumulates milk-deduction sales against the farmer's next payment (BR-30)
-  and nothing ever settles them.
+- `trips` carries its tariff and a `payment_run_id` column with **no foreign key** — and it stays unwired
+  even now that `payment_runs` exists, because that table pays farmers and pointing a trip at it would
+  conflate two different kinds of money (§6.3);
+- `pending_farmer_deductions` accumulates milk-deduction sales against the farmer's next payment (BR-30),
+  and a farmer payment run now settles them.
+
+Since then the module itself: valuation off the rate snapshot, payment runs with approval, disbursement,
+reversal with clawback capped at 50% of gross, the printed farmer statement, per-farmer payout detail,
+transport payment runs, cooperative-ledger posting of farmer deductions, the cash book, five finance
+reports, cost per litre, and requisition spend against a department.
 
 ### What is not built
 
-No payment run, no payment screen, no settlement of `pending_farmer_deductions`, no `payment_runs` table.
-`PhaseAcceptanceTest::test_phase7_payments_is_blocked_but_its_data_is_captured` asserts both halves: that
-the data is captured, and that the module is absent.
+Per-farmer savings accounts. The savings pool is a real account with real entries, so the money is
+somewhere; what a member cannot yet be told is what **their** share of it is. Nor is what the factory pays
+per litre modelled, which is why the cost report is a cost and not a margin.
+
+`PhaseAcceptanceTest::test_phase7_farmer_payment_is_built_and_transport_payment_is_not` is the acceptance
+test for this phase.
 
 ### Where it is surfaced
 
-`/payroll` (a banner and a note that this is staff payroll only), `/logistics` (payment runs are Phase 7),
-the farmer detail screen (pending deductions cannot be settled), and `/admin/personas` (no persona owns
-payments).
+`/payment-runs` and `/farmers/{farmer}/statement` (farmer payments), `/transport-payments`, `/cash-floats`,
+and `/payroll` (still staff payroll only, and it now links out rather than apologising).
 
 ---
 

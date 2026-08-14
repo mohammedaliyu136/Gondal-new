@@ -241,5 +241,7 @@ What the mobile client does NOT have is a screen for work that is not field capt
 confirmation, grading, batch dispatch, reconciliation and approvals stay on the web, and the app says so
 on the home screen of a user who holds them rather than pretending their role has nothing to do.
 
-Phase 7 (payments) is blocked on §15.1 and is documented as blocked in
-`PhaseAcceptanceTest::test_phase7_payments_is_blocked_but_its_data_is_captured` rather than quietly skipped.
+Phase 7 (payments) is built. §15.1 asked where the payment module lives and the meeting never answered;
+it now lives in a separate Finance module beside Payroll, which is a decision taken by recommendation and
+still open to reversal — see `docs/OPEN-DECISIONS.md` §1 and `docs/PLAN-FARMER-PAYMENTS.md`. The phase's
+acceptance test is `PhaseAcceptanceTest::test_phase7_farmer_payment_is_built_and_transport_payment_is_not`.
