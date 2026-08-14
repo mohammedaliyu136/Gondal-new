@@ -179,6 +179,14 @@ class RateSnapshotRulesTest extends GondalTestCase
 
         $gradeA = Grade::query()->where('code', 'GRD-A')->firstOrFail();
 
+        /*
+         * settings.html posts ONE form for this endpoint, so the payment section's
+         * gateway and the three mode selects arrive with the milk and cooperative
+         * figures on every real submission. They are sent here for the same reason:
+         * they are `required`, and a partial post is rejected before Settings::put
+         * is reached — which writes no audit entry and fails REF-1 below for a
+         * reason that has nothing to do with REF-1.
+         */
         $response = $this->put(route('admin.settings.update'), [
             'milk_delivery_cutoff_default' => '07:00',
             'milk_delivery_cutoff_latest_override' => '08:30',
@@ -186,8 +194,19 @@ class RateSnapshotRulesTest extends GondalTestCase
             'cooperative_default_savings_deduction_pct' => '5',
             'cooperative_default_levy_pct' => '2',
             'cooperative_default_social_contribution' => '250.00',
+            'payment_default_gateway' => 'paystack',
+            'payment_paystack_mode' => 'test',
+            'payment_monnify_mode' => 'test',
+            'payment_zainpay_mode' => 'test',
         ]);
 
+        /*
+         * Before the redirect: a validation failure redirects too, so asserting
+         * only the redirect lets a newly-required field turn this test's subject
+         * into a silent no-op. Naming the errors here is what makes the next
+         * added field fail loudly and in the right place.
+         */
+        $response->assertSessionHasNoErrors();
         $response->assertRedirect();
 
         // REF-1 — before and after are both recorded.

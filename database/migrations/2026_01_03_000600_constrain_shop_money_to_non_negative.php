@@ -70,7 +70,14 @@ return new class extends Migration
             return;
         }
 
+        $driver = DB::connection()->getDriverName();
+
         foreach ($this->checks() as $name => [$table, $predicate]) {
+            // MySQL 8.0+ forbids CHECK constraints on columns with ON DELETE SET NULL FKs (Error 3823)
+            if (in_array($driver, ['mysql', 'mariadb'], true) && in_array($name, ['sales_credit_names_a_cooperative', 'sales_deduction_names_a_farmer'], true)) {
+                continue;
+            }
+
             DB::statement(sprintf(
                 'ALTER TABLE %s ADD CONSTRAINT %s CHECK (%s)',
                 $table,
@@ -86,7 +93,13 @@ return new class extends Migration
             return;
         }
 
+        $driver = DB::connection()->getDriverName();
+
         foreach ($this->checks() as $name => [$table, $predicate]) {
+            if (in_array($driver, ['mysql', 'mariadb'], true) && in_array($name, ['sales_credit_names_a_cooperative', 'sales_deduction_names_a_farmer'], true)) {
+                continue;
+            }
+
             DB::statement(sprintf('ALTER TABLE %s DROP CONSTRAINT %s', $table, $name));
         }
     }
