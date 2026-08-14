@@ -986,8 +986,17 @@ class ApprovalRulesTest extends GondalTestCase
 
         $this->app->bind(AuditLogger::class, fn ($app) => new class($app->make(AuditContext::class)) extends AuditLogger
         {
-            public function approval(Model $subject, string $summary, array $detail = [], ?User $actor = null): AuditEntry
-            {
+            // The `$module` parameter arrived with Phase 7: approval() and
+            // rejection() hardcoded 'Purchases', which filed a payroll or a
+            // farmer payment approval where an auditor looking at that module
+            // would never see it. The override has to carry the same signature.
+            public function approval(
+                Model $subject,
+                string $summary,
+                array $detail = [],
+                ?User $actor = null,
+                string $module = 'Purchases',
+            ): AuditEntry {
                 throw new \RuntimeException('The audit log is unavailable.');
             }
         });

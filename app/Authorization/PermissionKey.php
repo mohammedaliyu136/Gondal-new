@@ -64,6 +64,10 @@ final class PermissionKey implements Stringable
             'shop' => 'One-Stop Shop',
             'hr' => 'Human Resources',
             'admin' => 'Administration',
+            // Phase 7 — farmer payment. Without this arm every finance.* denial
+            // and every audit entry keyed off a permission filed itself under
+            // "System", which is where nobody looks during a money investigation.
+            'finance' => 'Finance',
             default => 'System',
         };
     }

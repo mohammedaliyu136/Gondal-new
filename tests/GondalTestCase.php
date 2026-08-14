@@ -220,7 +220,7 @@ abstract class GondalTestCase extends TestCase
                 'social_contribution_minor' => 25_000, 'status' => 'active',
             ]);
 
-            foreach ([Cooperative::ACCOUNT_GENERAL, Cooperative::ACCOUNT_SOCIAL] as $kind) {
+            foreach ([Cooperative::ACCOUNT_GENERAL, Cooperative::ACCOUNT_SOCIAL, Cooperative::ACCOUNT_SAVINGS] as $kind) {
                 CooperativeAccount::query()->create([
                     'cooperative_id' => $cooperative->getKey(),
                     'kind' => $kind,

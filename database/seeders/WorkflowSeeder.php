@@ -36,6 +36,8 @@ class WorkflowSeeder extends Seeder
         $this->seedStockAdjustmentWorkflow();
         $this->seedPayrollWorkflow();
         $this->seedBatchDiscrepancyWorkflow();
+        $this->seedFarmerPaymentWorkflow();
+        $this->seedTransportPaymentWorkflow();
         $this->seedDisabledProjectWorkflow();
     }
 
@@ -140,6 +142,72 @@ class WorkflowSeeder extends Seeder
             ['position' => 1, 'name' => 'Prepared by HR', 'role' => null, 'permission' => 'hr.payroll.create', 'condition' => WorkflowStage::CONDITION_ALWAYS, 'value' => null, 'sla' => null, 'reject' => false, 'submission' => true],
             ['position' => 2, 'name' => 'Accounts', 'role' => 'Accounts', 'permission' => 'hr.payroll.approve', 'condition' => WorkflowStage::CONDITION_ALWAYS, 'value' => null, 'sla' => 48, 'reject' => true, 'submission' => false],
             ['position' => 3, 'name' => 'General Manager', 'role' => 'General Manager', 'permission' => 'hr.payroll.approve', 'condition' => WorkflowStage::CONDITION_ALWAYS, 'value' => null, 'sla' => 24, 'reject' => true, 'submission' => false],
+        ]);
+    }
+
+    /**
+     * WF-007 — §14 Phase 7. The farmer payment run.
+     *
+     * Deliberately the same chain as WF-004 payroll: prepared by the department
+     * that owns the money, then Accounts, then the General Manager. Money owed
+     * to 1,800 farmers should not clear on a shorter chain than money owed to
+     * fifty staff.
+     *
+     * `requester_may_not_approve_own` is BR-18, and it matters more here than
+     * anywhere else in the system: the preparer of a payment run is the person
+     * best placed to make it pay the wrong people.
+     */
+    private function seedFarmerPaymentWorkflow(): void
+    {
+        $workflow = $this->workflow('WF-007', 'Farmer Payment Run', Workflow::APPLIES_FARMER_PAYMENT_RUN, 'active', [
+            'strict_sequence' => true,
+            'rejection_returns_to_requester' => true,
+            'approver_may_reduce_amount' => false,
+            'allow_request_info' => true,
+            'allow_delegation' => false,
+            'auto_escalate_on_sla' => false,
+            'requester_may_not_approve_own' => true,
+            'overdue_reminder' => 'daily',
+        ], 'Milk payment to farmers');
+
+        $this->stages($workflow, [
+            ['position' => 1, 'name' => 'Prepared by Accounts', 'role' => null, 'permission' => 'finance.farmer_payments.create', 'condition' => WorkflowStage::CONDITION_ALWAYS, 'value' => null, 'sla' => null, 'reject' => false, 'submission' => true],
+            ['position' => 2, 'name' => 'Accounts', 'role' => 'Accounts', 'permission' => 'finance.farmer_payments.approve', 'condition' => WorkflowStage::CONDITION_ALWAYS, 'value' => null, 'sla' => 48, 'reject' => true, 'submission' => false],
+            ['position' => 3, 'name' => 'General Manager', 'role' => 'General Manager', 'permission' => 'finance.farmer_payments.approve', 'condition' => WorkflowStage::CONDITION_ALWAYS, 'value' => null, 'sla' => 24, 'reject' => true, 'submission' => false],
+        ]);
+    }
+
+    /**
+     * WF-008 — §14 Phase 7. The transport payment run.
+     *
+     * One stage shorter than the farmer run, on purpose. A transport run pays
+     * tens of riders sums set by a route tariff an administrator maintains,
+     * where a farmer run pays hundreds of households sums the system computed
+     * from milk nobody can re-weigh. Requiring the General Manager on every
+     * fortnightly rider sheet would make the signature routine, and a routine
+     * signature is not a control.
+     *
+     * The band is still there: a run above the Accounts band escalates to the
+     * General Manager like anything else, so an unusually large sheet does get
+     * the second pair of eyes.
+     */
+    private function seedTransportPaymentWorkflow(): void
+    {
+        $workflow = $this->workflow('WF-008', 'Transport Payment Run', Workflow::APPLIES_TRANSPORT_PAYMENT_RUN, 'active', [
+            'strict_sequence' => true,
+            'rejection_returns_to_requester' => true,
+            'approver_may_reduce_amount' => false,
+            'allow_request_info' => true,
+            'allow_delegation' => false,
+            'auto_escalate_on_sla' => false,
+            'requester_may_not_approve_own' => true,
+            'overdue_reminder' => 'daily',
+        ], 'Route fees to riders and drivers');
+
+        $this->stages($workflow, [
+            ['position' => 1, 'name' => 'Prepared by Accounts', 'role' => null, 'permission' => 'logistics.payments.create', 'condition' => WorkflowStage::CONDITION_ALWAYS, 'value' => null, 'sla' => null, 'reject' => false, 'submission' => true],
+            ['position' => 2, 'name' => 'Accounts', 'role' => 'Accounts', 'permission' => 'logistics.payments.approve', 'condition' => WorkflowStage::CONDITION_ALWAYS, 'value' => null, 'sla' => 48, 'reject' => true, 'submission' => false],
+            ['position' => 3, 'name' => 'General Manager', 'role' => 'General Manager', 'permission' => 'logistics.payments.approve', 'condition' => WorkflowStage::CONDITION_AMOUNT_ABOVE, 'value' => 50_000_00, 'sla' => 24, 'reject' => true, 'submission' => false],
         ]);
     }
 

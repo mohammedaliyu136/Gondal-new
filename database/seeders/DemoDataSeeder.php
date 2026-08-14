@@ -962,7 +962,7 @@ class DemoDataSeeder extends Seeder
                 'status' => 'active',
             ]);
 
-            foreach ([Cooperative::ACCOUNT_GENERAL, Cooperative::ACCOUNT_SOCIAL] as $kind) {
+            foreach ([Cooperative::ACCOUNT_GENERAL, Cooperative::ACCOUNT_SOCIAL, Cooperative::ACCOUNT_SAVINGS] as $kind) {
                 CooperativeAccount::query()->firstOrCreate(
                     ['cooperative_id' => $cooperative->getKey(), 'kind' => $kind],
                     ['balance_minor' => $kind === Cooperative::ACCOUNT_GENERAL ? 4_820_000 : 1_140_000],

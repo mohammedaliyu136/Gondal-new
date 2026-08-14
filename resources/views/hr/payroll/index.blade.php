@@ -16,7 +16,9 @@
     <span>&#128274;</span>
     <div>
       <strong>This screen covers staff payroll only.</strong>
-      Farmer and transport payments are not available yet.
+      Farmers are paid for their milk under
+      <a href="{{ route('payment-runs.index') }}">Farmer Payments</a>.
+      Transport payments to riders and drivers are not available yet.
     </div>
   </div>
 

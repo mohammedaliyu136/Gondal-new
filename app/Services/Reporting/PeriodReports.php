@@ -3,12 +3,18 @@
 namespace App\Services\Reporting;
 
 use App\Authorization\Access;
+use App\Models\CashFloat;
 use App\Models\Delivery;
+use App\Models\FarmerPayment;
+use App\Models\FarmerPaymentDisbursement;
 use App\Models\Farmer;
 use App\Models\FieldActivity;
+use App\Models\PaymentRun;
 use App\Models\Sale;
 use App\Models\User;
+use App\Services\Finance\RequisitionSpendService;
 use App\Support\Report;
+use App\Support\Volume;
 use App\Support\Wat;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -87,6 +93,36 @@ class PeriodReports
                 'permission' => 'shop.revenue.view',
                 'description' => 'Sales and revenue by product category and payment method.',
             ],
+            /*
+             * §14 Phase 7 — the finance reports. There were none: five reports
+             * and not one of them about money, on a system whose whole purpose
+             * is buying milk.
+             */
+            'farmer_payments' => [
+                'label' => 'Farmer payments',
+                'permission' => 'finance.farmer_payments.view',
+                'description' => 'What was paid to farmers in the period, per run, and what is still outstanding.',
+            ],
+            'deductions' => [
+                'label' => 'Deductions collected',
+                'permission' => 'finance.farmer_payments.view',
+                'description' => 'Savings, levy, social fund and shop credit taken from farmers, by cooperative.',
+            ],
+            'cost_per_litre' => [
+                'label' => 'Cost per litre',
+                'permission' => 'finance.farmer_payments.view',
+                'description' => 'What a litre cost to put in the factory tank — farmer price, transport, and what was lost on the way.',
+            ],
+            'spend' => [
+                'label' => 'Departmental spend',
+                'permission' => 'purchase.requisitions.view',
+                'description' => 'What each department actually paid against approved requisitions, and its budget if one is set.',
+            ],
+            'cash' => [
+                'label' => 'Cash reconciliation',
+                'permission' => 'finance.cash.view',
+                'description' => 'Floats drawn, disbursed and returned, and every variance with its explanation.',
+            ],
         ];
     }
 
@@ -144,8 +180,286 @@ class PeriodReports
             'enrolment' => $this->enrolment($from, $to),
             'extension' => $this->extension($from, $to),
             'sales' => $this->sales($start, $end),
+            'farmer_payments' => $this->farmerPayments($start, $end),
+            'deductions' => $this->deductions($start, $end),
+            'cost_per_litre' => $this->costPerLitre($start, $end),
+            'spend' => $this->spend($start, $end),
+            'cash' => $this->cash($start, $end),
         };
     }
+
+
+    /* ---------------------------------------------------------------------
+     | §14 Phase 7 — the money reports
+     * ------------------------------------------------------------------ */
+
+    /**
+     * What was paid to farmers, per run.
+     *
+     * Keyed on the RUN rather than the farmer: a per-farmer list of 1,800 rows
+     * is a data dump, and the question Accounts actually asks at month end is
+     * "which sheets did we settle and what is still open on them".
+     *
+     * Reversed lines are excluded from the money and counted separately, because
+     * a run with four reversals looks identical to a clean one on every other
+     * column.
+     */
+    private function farmerPayments(Carbon $start, Carbon $end): array
+    {
+        $runs = PaymentRun::query()
+            ->excludingTestData()
+            ->where('payment_runs.created_at', '>=', $start)
+            ->where('payment_runs.created_at', '<', $end)
+            ->with('payments')
+            ->orderBy('payment_runs.id')
+            ->get();
+
+        $rows = $runs->map(function (PaymentRun $run) {
+            $live = $run->payments->where('status', '!=', FarmerPayment::STATUS_REVERSED);
+
+            $disbursed = (int) FarmerPaymentDisbursement::query()
+                ->whereIn('farmer_payment_id', $live->pluck('id'))
+                ->sum('amount_minor');
+
+            $net = (int) $live->sum('net_minor');
+
+            return [
+                'Run' => $run->reference,
+                'Period' => $run->period_start?->toDateString().' to '.$run->period_end?->toDateString(),
+                'Status' => \Illuminate\Support\Str::headline($run->status),
+                'Farmers' => $live->count(),
+                'Litres' => self::decimal($live->sum('litres_paid')),
+                'Gross' => self::money($live->sum('gross_minor')),
+                'Deductions' => self::money((int) $live->sum('gross_minor') - $net),
+                'Net' => self::money($net),
+                'Paid out' => self::money($disbursed),
+                'Outstanding' => self::money($net - $disbursed),
+                'Held' => self::money($live->where('status', FarmerPayment::STATUS_HELD)->sum('net_minor')),
+                'Reversed' => $run->payments->where('status', FarmerPayment::STATUS_REVERSED)->count(),
+            ];
+        });
+
+        return Report::of(
+            ['Run', 'Period', 'Status', 'Farmers', 'Litres', 'Gross', 'Deductions', 'Net',
+                'Paid out', 'Outstanding', 'Held', 'Reversed'],
+            $rows->all(),
+            [
+                'Farmers' => (int) $rows->sum('Farmers'),
+                'Gross' => self::money((int) round($rows->sum(fn ($r) => (float) $r['Gross'] * 100))),
+                'Net' => self::money((int) round($rows->sum(fn ($r) => (float) $r['Net'] * 100))),
+                'Paid out' => self::money((int) round($rows->sum(fn ($r) => (float) $r['Paid out'] * 100))),
+                'Outstanding' => self::money((int) round($rows->sum(fn ($r) => (float) $r['Outstanding'] * 100))),
+            ],
+        );
+    }
+
+    /**
+     * What was taken off farmers, and where it went.
+     *
+     * By cooperative, because that is who holds it. Until Phase 7 these amounts
+     * were subtracted and credited nowhere at all; the ledger columns here are
+     * what the pools actually hold now, so a divergence between "deducted in the
+     * period" and "held" is visible rather than assumed away.
+     */
+    private function deductions(Carbon $start, Carbon $end): array
+    {
+        $payments = FarmerPayment::query()
+            ->excludingTestData()
+            ->where('farmer_payments.status', '!=', FarmerPayment::STATUS_REVERSED)
+            ->whereIn('farmer_payments.payment_run_id', PaymentRun::query()
+                ->where('payment_runs.created_at', '>=', $start)
+                ->where('payment_runs.created_at', '<', $end)
+                ->select('id'))
+            ->with('farmer.cooperative.accounts')
+            ->get();
+
+        $rows = $payments
+            ->groupBy(fn (FarmerPayment $payment) => $payment->farmer?->cooperative?->name ?? 'No cooperative')
+            ->map(function ($group, $name) {
+                $cooperative = $group->first()->farmer?->cooperative;
+
+                return [
+                    'Cooperative' => $name,
+                    'Farmers' => $group->pluck('farmer_id')->unique()->count(),
+                    'Gross' => self::money($group->sum('gross_minor')),
+                    'Savings' => self::money($group->sum('savings_minor')),
+                    'Levy' => self::money($group->sum('levy_minor')),
+                    'Social fund' => self::money($group->sum('social_minor')),
+                    'Shop credit' => self::money($group->sum('shop_deduction_minor')),
+                    'Net paid' => self::money($group->sum('net_minor')),
+                    // What the pools hold now, all-time — not period-limited,
+                    // and labelled so nobody reads it as a period figure.
+                    'Savings pool (now)' => self::money($cooperative?->savingsAccount()?->balance_minor ?? 0),
+                    'Social pool (now)' => self::money($cooperative?->socialAccount()?->balance_minor ?? 0),
+                ];
+            })
+            ->sortBy('Cooperative')
+            ->values();
+
+        return Report::of(
+            ['Cooperative', 'Farmers', 'Gross', 'Savings', 'Levy', 'Social fund', 'Shop credit',
+                'Net paid', 'Savings pool (now)', 'Social pool (now)'],
+            $rows->all(),
+            [
+                'Farmers' => (int) $rows->sum('Farmers'),
+                'Savings' => self::money((int) round($rows->sum(fn ($r) => (float) $r['Savings'] * 100))),
+                'Levy' => self::money((int) round($rows->sum(fn ($r) => (float) $r['Levy'] * 100))),
+                'Social fund' => self::money((int) round($rows->sum(fn ($r) => (float) $r['Social fund'] * 100))),
+                'Shop credit' => self::money((int) round($rows->sum(fn ($r) => (float) $r['Shop credit'] * 100))),
+            ],
+        );
+    }
+
+    /**
+     * What a litre cost to put in the factory's tank.
+     *
+     * A COST, not a margin — nothing records what the factory pays, so there is
+     * no revenue side and pretending there is would be worse than the gap.
+     * Presented as a small table of named figures rather than one row per
+     * anything, because the question has one answer.
+     */
+    private function costPerLitre(Carbon $start, Carbon $end): array
+    {
+        $analysis = app(MilkCostAnalysis::class)->forPeriod($start, $end);
+        $litres = $analysis['litres'];
+
+        $rows = [
+            ['Figure' => 'Presented by farmers', 'Litres' => self::decimal($litres['presented']), 'Amount' => ''],
+            ['Figure' => 'Rejected at the point', 'Litres' => self::decimal($litres['rejected_at_point']), 'Amount' => ''],
+            ['Figure' => 'Accepted', 'Litres' => self::decimal($litres['accepted']), 'Amount' => ''],
+            ['Figure' => 'Priced and paid for', 'Litres' => self::decimal($litres['priced']), 'Amount' => ''],
+            ['Figure' => 'Rejected at the centre', 'Litres' => self::decimal($litres['rejected_at_center']), 'Amount' => ''],
+            ['Figure' => 'Received at the factory', 'Litres' => self::decimal($litres['received_at_factory']), 'Amount' => ''],
+            // Measured on the consignment and the batch themselves, never by
+            // subtracting one date window from another.
+            ['Figure' => 'Lost point to centre', 'Litres' => self::decimal($litres['lost_point_to_centre']), 'Amount' => ''],
+            ['Figure' => 'Lost centre to factory', 'Litres' => self::decimal($litres['lost_centre_to_factory']), 'Amount' => ''],
+            ['Figure' => 'Value of milk lost', 'Litres' => self::decimal($analysis['shrinkage_litres']),
+                'Amount' => self::money($analysis['shrinkage_minor'])],
+            ['Figure' => 'Paid to farmers (gross)', 'Litres' => '', 'Amount' => self::money($analysis['farmer_gross_minor'])],
+            ['Figure' => 'Transport ('.$analysis['trips'].' trips)', 'Litres' => '', 'Amount' => self::money($analysis['transport_minor'])],
+            ['Figure' => 'Total cost', 'Litres' => '', 'Amount' => self::money($analysis['total_minor'])],
+            ['Figure' => 'COST PER LITRE paid for', 'Litres' => '',
+                'Amount' => $analysis['cost_per_litre_minor'] === null ? 'no priced litres'
+                    : self::money($analysis['cost_per_litre_minor'])],
+            ['Figure' => '— of which farmer price', 'Litres' => '',
+                'Amount' => $analysis['farmer_cost_per_litre_minor'] === null ? ''
+                    : self::money($analysis['farmer_cost_per_litre_minor'])],
+            ['Figure' => '— of which transport', 'Litres' => '',
+                'Amount' => $analysis['transport_cost_per_litre_minor'] === null ? ''
+                    : self::money($analysis['transport_cost_per_litre_minor'])],
+        ];
+
+        if (Volume::toCentilitres($analysis['unpriced_litres']) > 0) {
+            // Said out loud rather than absorbed: a cost figure built on a
+            // period where some milk has no rate yet is understated.
+            $rows[] = ['Figure' => 'NOT YET PRICED (excluded above)',
+                'Litres' => self::decimal($analysis['unpriced_litres']), 'Amount' => ''];
+        }
+
+        if ($analysis['scope_blind']) {
+            // Said first, in the first row, because a table of zeros reads as
+            // "there was no milk" and the truth is "you cannot see the milk".
+            array_unshift($rows, [
+                'Figure' => 'NO ACCESS TO DELIVERY RECORDS — every figure below is zero for that reason, not because there was no milk',
+                'Litres' => '', 'Amount' => '',
+            ]);
+        }
+
+        return Report::of(['Figure', 'Litres', 'Amount'], $rows, []);
+    }
+
+    /**
+     * Every float, and every variance with the words somebody wrote about it.
+     *
+     * The report exists to be read across many rows at once: one unexplained
+     * ₦4,000 is a bad morning, and the same officer four times is a pattern.
+     */
+    private function cash(Carbon $start, Carbon $end): array
+    {
+        $floats = CashFloat::query()
+            ->excludingTestData()
+            ->where('cash_floats.opened_at', '>=', $start)
+            ->where('cash_floats.opened_at', '<', $end)
+            ->with(['drawnBy', 'issuedBy', 'receivedBackBy', 'collectionCenter'])
+            ->orderBy('cash_floats.opened_at')
+            ->get();
+
+        $rows = $floats->map(fn (CashFloat $float) => [
+            'Reference' => $float->reference,
+            'Opened' => Wat::dateTime($float->opened_at),
+            'Held by' => $float->drawnBy?->name,
+            'Issued by' => $float->issuedBy?->name,
+            'Centre' => $float->collectionCenter?->name ?? '',
+            'Drawn' => self::money($float->amount_drawn_minor),
+            'Disbursed' => $float->isOpen() ? '' : self::money((int) $float->disbursed_minor),
+            'Returned' => $float->amount_returned_minor === null ? '' : self::money($float->amount_returned_minor),
+            'Variance' => $float->isOpen() ? '' : self::money((int) $float->variance_minor),
+            'Explanation' => $float->variance_explanation ?? '',
+            'Received back by' => $float->receivedBackBy?->name ?? '',
+            'Status' => $float->isOpen() ? 'Open' : 'Reconciled',
+        ]);
+
+        $reconciled = $floats->where('status', CashFloat::STATUS_RECONCILED);
+
+        return Report::of(
+            ['Reference', 'Opened', 'Held by', 'Issued by', 'Centre', 'Drawn', 'Disbursed',
+                'Returned', 'Variance', 'Explanation', 'Received back by', 'Status'],
+            $rows->all(),
+            [
+                'Drawn' => self::money((int) $floats->sum('amount_drawn_minor')),
+                'Disbursed' => self::money((int) $reconciled->sum('disbursed_minor')),
+                'Returned' => self::money((int) $reconciled->sum('amount_returned_minor')),
+                'Variance' => self::money((int) $reconciled->sum('variance_minor')),
+            ],
+        );
+    }
+
+    /**
+     * What each department actually paid, against the budget nobody was reading.
+     *
+     * `departments.cost_centre` has existed since phase 4 and nothing has ever
+     * read it. A budget is advisory here — see RequisitionSpendService — so the
+     * overrun column is a statement, not an enforcement.
+     */
+    private function spend(Carbon $start, Carbon $end): array
+    {
+        $rows = collect(app(RequisitionSpendService::class)->byDepartment($start, $end))
+            ->map(fn (array $row) => [
+                'Department' => $row['department'],
+                'Cost centre' => $row['cost_centre'] ?? '',
+                'Payments' => $row['payments'],
+                'Spent' => self::money($row['spent_minor']),
+                // Blank, not zero, when nobody has set a budget: "under by ₦0"
+                // and "there is no budget" are different statements.
+                'Budget' => $row['budget_minor'] === null ? '' : self::money($row['budget_minor']),
+                'Remaining' => $row['remaining_minor'] === null ? '' : self::money($row['remaining_minor']),
+                'Over budget' => $row['over_budget'] ? 'YES' : '',
+            ]);
+
+        return Report::of(
+            ['Department', 'Cost centre', 'Payments', 'Spent', 'Budget', 'Remaining', 'Over budget'],
+            $rows->all(),
+            [
+                'Payments' => (int) $rows->sum('Payments'),
+                'Spent' => self::money((int) round($rows->sum(fn ($r) => (float) $r['Spent'] * 100))),
+            ],
+        );
+    }
+
+    /**
+     * Money as a plain decimal, for the same reason self::decimal() exists.
+     *
+     * Money::format() produces "₦12,500.00", which is right on a screen and does
+     * not sum in a spreadsheet. The currency is said once, in the report's own
+     * heading.
+     */
+    private static function money(mixed $minor): string
+    {
+        return number_format((int) $minor / 100, 2, '.', '');
+    }
+
+    /* ------------------------------------------------------------------ */
 
     /**
      * A figure a spreadsheet can add up.

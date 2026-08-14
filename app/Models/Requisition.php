@@ -80,6 +80,17 @@ class Requisition extends Model implements Scopeable
         return $this->belongsTo(User::class, 'requester_user_id');
     }
 
+    /**
+     * Money that actually left against this requisition.
+     *
+     * An approval is a permission to spend, not a spend. Until Phase 7 nothing
+     * referred to `approved_total_minor` again once the workflow cleared.
+     */
+    public function expenditures(): HasMany
+    {
+        return $this->hasMany(RequisitionExpenditure::class);
+    }
+
     public function department(): BelongsTo
     {
         return $this->belongsTo(Department::class);

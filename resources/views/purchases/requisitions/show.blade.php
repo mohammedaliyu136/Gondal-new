@@ -1,3 +1,50 @@
+
+  {{-- §14 Phase 7 — the other half of a purchase. An approval is a permission to
+       spend; before this, nothing ever referred to the approved figure again. --}}
+  @if ($requisition->status === 'approved' || $expenditures->isNotEmpty())
+    <div class="card mb-16">
+      <div class="card-head">
+        <div><h3>Payments made</h3><p>What actually left, against what was authorised</p></div>
+        @if ($canSpend && $remainingMinor > 0)
+          <div><a href="#modal-spend" class="btn btn-sm btn-primary">Record a payment</a></div>
+        @endif
+      </div>
+      <div class="card-body">
+        <div class="grid grid-3 mb-16">
+          <div><div class="meta-label">Authorised</div>
+            <div class="meta-value">{{ \App\Support\Money::format($authorisedMinor) }}</div></div>
+          <div><div class="meta-label">Paid so far</div>
+            <div class="meta-value">{{ \App\Support\Money::format($spentMinor) }}</div></div>
+          <div><div class="meta-label">Still authorised</div>
+            <div class="meta-value">{{ \App\Support\Money::format($remainingMinor) }}</div></div>
+        </div>
+        @if ($expenditures->isEmpty())
+          <p class="hint">Nothing has been paid against this yet.</p>
+        @else
+          <div class="table-wrap">
+            <table class="table">
+              <thead><tr><th>Date</th><th>Vendor</th><th>Invoice</th><th>Method</th>
+                <th class="num">Amount</th><th>Recorded by</th></tr></thead>
+              <tbody>
+                @foreach ($expenditures as $spend)
+                  <tr>
+                    <td>{{ $spend->spent_on?->toDateString() }}</td>
+                    <td>{{ $spend->vendor ?: '—' }}</td>
+                    <td>{{ $spend->invoice_reference ?: '—' }}</td>
+                    <td>{{ \Illuminate\Support\Str::headline($spend->method) }}</td>
+                    <td class="num">{{ \App\Support\Money::format($spend->amount_minor) }}</td>
+                    <td>{{ $spend->recordedBy?->name }}
+                      @if ($spend->cost_centre)<small class="hint d-block">{{ $spend->cost_centre }}</small>@endif</td>
+                  </tr>
+                @endforeach
+              </tbody>
+            </table>
+          </div>
+        @endif
+      </div>
+    </div>
+  @endif
+
 @extends('layouts.app')
 @section('title', $requisition->reference)
 
@@ -314,6 +361,53 @@
           <div class="modal-foot">
             <a href="#" class="btn btn-ghost">Cancel</a>
             <button type="submit" class="btn btn-primary">Resubmit as a new requisition</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  @endif
+
+  @if ($canSpend && $remainingMinor > 0)
+    <div id="modal-spend" class="modal">
+      <a href="#" class="modal-overlay"></a>
+      <div class="modal-dialog">
+        <div class="modal-head"><div><h3>Record a payment</h3>
+          <p>{{ \App\Support\Money::format($remainingMinor) }} still authorised on {{ $requisition->reference }}</p></div>
+          <a href="#" class="modal-close">&times;</a></div>
+        <form method="POST" action="{{ route('requisitions.spend', $requisition) }}">
+          @csrf
+          <div class="modal-body">
+            <div class="form-grid">
+              <div class="field"><label for="sp-amount">Amount (kobo)</label>
+                <input type="number" id="sp-amount" name="amount_minor" min="1"
+                       max="{{ $remainingMinor }}" value="{{ $remainingMinor }}" required /></div>
+              <div class="field"><label for="sp-method">Method</label>
+                <select id="sp-method" name="method" required>
+                  <option value="bank">Bank transfer</option>
+                  <option value="transfer">Transfer</option>
+                  <option value="cheque">Cheque</option>
+                  <option value="cash">Cash</option>
+                </select></div>
+              <div class="field"><label for="sp-vendor">Vendor</label>
+                <input type="text" id="sp-vendor" name="vendor" value="{{ $requisition->suggested_vendor }}" /></div>
+              <div class="field"><label for="sp-invoice">Invoice reference</label>
+                <input type="text" id="sp-invoice" name="invoice_reference" /></div>
+              <div class="field"><label for="sp-date">Paid on</label>
+                <input type="date" id="sp-date" name="spent_on" /></div>
+              <div class="field full"><label for="sp-notes">Notes</label>
+                <input type="text" id="sp-notes" name="notes" /></div>
+              <div class="field full">
+                {{-- Overspend is refused rather than absorbed: an approval is an
+                     authority for a figure, and exceeding it needs a revising
+                     requisition, which this module already supports. --}}
+                <div class="hint">You cannot pay more than was authorised. If the real cost is higher,
+                  raise a revising requisition instead.</div>
+              </div>
+            </div>
+          </div>
+          <div class="modal-foot">
+            <a href="#" class="btn btn-ghost">Cancel</a>
+            <button type="submit" class="btn btn-primary">Record payment</button>
           </div>
         </form>
       </div>

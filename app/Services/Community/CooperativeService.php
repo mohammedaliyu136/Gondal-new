@@ -61,8 +61,13 @@ class CooperativeService
                 'status' => 'active',
             ]);
 
-            // §9 — exactly the two accounts. NG-1 defers the loan book.
-            foreach ([Cooperative::ACCOUNT_GENERAL, Cooperative::ACCOUNT_SOCIAL] as $kind) {
+            /*
+             * Three accounts. NG-1 still defers the loan book.
+             *
+             * Savings joined general and social in Phase 7, when farmer payment
+             * finally had somewhere to put the money it had been deducting.
+             */
+            foreach ([Cooperative::ACCOUNT_GENERAL, Cooperative::ACCOUNT_SOCIAL, Cooperative::ACCOUNT_SAVINGS] as $kind) {
                 CooperativeAccount::query()->create([
                     'cooperative_id' => $cooperative->getKey(),
                     'kind' => $kind,

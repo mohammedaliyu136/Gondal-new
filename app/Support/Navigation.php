@@ -117,6 +117,43 @@ final class Navigation
                 'icon' => 'shop',
                 'module' => 'shop',
             ],
+            /*
+             * §14 Phase 7 — the accounting department's own area.
+             *
+             * Named for the department rather than for the act. "Payouts" would
+             * describe what these two screens do today and stop describing the
+             * section the moment anything is added that takes money IN — the
+             * sales and revenue figures the Accounts role already holds
+             * `shop.revenue.view` for, or the cooperative savings ledger. A
+             * section named after a verb has to be renamed to grow.
+             *
+             * Payroll lives HERE and no longer under Human Resources. Farmer
+             * payment and payroll are the same thing done to two different
+             * people — a run is generated, approved through a workflow, handed
+             * over and reconciled — and somebody asking "what have we paid
+             * out?" should not need to know that one was filed under Finance
+             * and the other under HR. It is deliberately not listed in both:
+             * one nav item in two places reads as two different screens. HR
+             * keeps the register, the leave book and the vacancies, which are
+             * about employing people rather than paying them.
+             *
+             * Not here, deliberately:
+             *   Requisitions — Accounts approve them, but every department head
+             *     RAISES one, and a storekeeper should not have to look under
+             *     Accounting to ask for a spare part. It stays top-level.
+             *   Requisitions, still. See above.
+             */
+            [
+                'type' => 'group',
+                'label' => 'Accounting',
+                'icon' => 'ledger',
+                'children' => [
+                    ['label' => 'Farmer Payments', 'route' => 'payment-runs.index', 'permission' => 'finance.farmer_payments.view', 'module' => 'finance'],
+                    ['label' => 'Transport Payments', 'route' => 'transport-payments.index', 'permission' => 'logistics.payments.view', 'module' => 'milk'],
+                    ['label' => 'Payroll', 'route' => 'payroll.index', 'permission' => 'hr.payroll.view', 'module' => 'hr'],
+                    ['label' => 'Cash Book', 'route' => 'cash-floats.index', 'permission' => 'finance.cash.view', 'module' => 'finance'],
+                ],
+            ],
             [
                 'type' => 'group',
                 'label' => 'Human Resources',
@@ -128,7 +165,8 @@ final class Navigation
                     // §4 — `hr.leave.view` OR `hr.leave.own.view`
                     ['label' => 'Leave', 'route' => 'leave.index', 'permission' => ['hr.leave.view', 'hr.leave.own.view']],
                     ['label' => 'Open Positions', 'route' => 'positions.index', 'permission' => 'hr.employees.view'],
-                    ['label' => 'Payroll', 'route' => 'payroll.index', 'permission' => 'hr.payroll.view'],
+                    // Payroll moved to Accounting — see the note there. HR keeps the
+                    // things about employing people, not about paying them.
                 ],
             ],
             [
@@ -165,9 +203,16 @@ final class Navigation
             }
 
             if (($item['type'] ?? 'link') === 'group') {
+                /*
+                 * A child may carry its own `module`. Payouts needs it: the
+                 * group spans finance and hr, so a single module key on the
+                 * group would either hide payroll when finance is switched off
+                 * or leave farmer payments visible when it is.
+                 */
                 $children = array_values(array_filter(
                     $item['children'],
-                    static fn (array $child) => self::maySee($user, $child),
+                    static fn (array $child) => ! in_array($child['module'] ?? null, $disabled, true)
+                        && self::maySee($user, $child),
                 ));
 
                 // "Collapsed nav groups with no visible children are omitted."

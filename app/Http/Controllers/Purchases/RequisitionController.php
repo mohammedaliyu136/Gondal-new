@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Comment;
 use App\Models\Department;
 use App\Models\Requisition;
+use App\Services\Finance\RequisitionSpendService;
 use App\Models\Workflow;
 use App\Services\Purchases\RequisitionService;
 use App\Services\Workflow\WorkflowEngine;
@@ -76,7 +77,42 @@ class RequisitionController extends Controller
                 && $requisition->requester_user_id === $this->currentUser()?->getKey(),
             // BR-18 — spelled out on screen rather than only enforced silently.
             'isOwnSubmission' => $requisition->requester_user_id === $this->currentUser()?->getKey(),
+            /*
+             * §14 Phase 7 — the other half of a purchase. An approval is a
+             * permission to spend; until this existed nothing ever referred to
+             * `approved_total_minor` again once the workflow cleared.
+             */
+            'expenditures' => $requisition->expenditures()->with('recordedBy')->latest('spent_on')->get(),
+            'authorisedMinor' => app(RequisitionSpendService::class)->authorisedMinor($requisition),
+            'spentMinor' => app(RequisitionSpendService::class)->spentMinor($requisition),
+            'remainingMinor' => app(RequisitionSpendService::class)->remainingMinor($requisition),
+            'canSpend' => $this->allows('purchase.requisitions.spend', $requisition)
+                && $requisition->status === Requisition::STATUS_APPROVED,
         ]);
+    }
+
+
+    /**
+     * Record that an approved requisition was actually paid.
+     *
+     * Deliberately not the requester's action: the person who asked for the
+     * money is not the person who confirms it left. Same separation BR-18 makes
+     * on approvals and the cash book makes on floats.
+     */
+    public function spend(Request $request, Requisition $requisition): RedirectResponse
+    {
+        $validated = $request->validate([
+            'amount_minor' => ['required', 'integer', 'min:1'],
+            'vendor' => ['nullable', 'string', 'max:255'],
+            'invoice_reference' => ['nullable', 'string', 'max:255'],
+            'method' => ['required', 'string', 'max:24'],
+            'spent_on' => ['nullable', 'date'],
+            'notes' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        app(RequisitionSpendService::class)->record($requisition, $validated, $this->currentUser());
+
+        return back()->with('success', 'Payment recorded against '.$requisition->reference.'.');
     }
 
     public function store(Request $request): RedirectResponse

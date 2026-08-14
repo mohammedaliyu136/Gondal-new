@@ -25,6 +25,11 @@
       </div>
     </div>
     <div class="dh-actions">
+      @can('finance.farmer_payments.view')
+        {{-- USER-2 — a farmer has no login, so the statement is something an
+             officer prints and hands over. --}}
+        <a href="{{ route('farmers.statement', $farmer) }}" class="btn btn-outline">Statement</a>
+      @endcan
       @can('community.farmers.edit')
         <a href="#modal-edit-farmer" class="btn btn-outline">Edit</a>
       @endcan

@@ -647,20 +647,32 @@ class PhaseAcceptanceTest extends GondalTestCase
     }
 
     /**
-     * §14 Phase 7 — BLOCKED on §15.1. There is no farmer or transport payment
-     * module, and this test exists to say so deliberately rather than leave a
-     * silent gap: what the phase needs is being CAPTURED correctly (BR-13 to
-     * BR-16), and nothing pays anything out.
+     * §14 Phase 7 — FARMER PAYMENT, now built; TRANSPORT PAYMENT, still not.
+     *
+     * This test used to assert the ABSENCE of a payment module, and that was the
+     * honest thing to assert for six phases. Farmer payment now exists
+     * (docs/PLAN-FARMER-PAYMENTS.md), so the assertion is inverted for that half
+     * and kept exactly as it was for the half that is still missing — because a
+     * half-built phase is precisely where a silent gap hides.
+     *
+     * What is deliberately still true: the rate snapshot (BR-14) and the
+     * cooperative percentages (BR-15) are captured at confirmation, before any
+     * payment reads them, so the arithmetic never depends on today's rate.
      */
-    public function test_phase7_payments_is_blocked_but_its_data_is_captured(): void
+    public function test_phase7_farmer_payment_is_built_and_transport_payment_is_not(): void
     {
-        // No payment-run route exists anywhere.
         $routes = collect(app('router')->getRoutes())->map(fn ($route) => $route->uri())->implode(' ');
 
-        $this->assertStringNotContainsString('payment-runs', $routes);
-        $this->assertStringNotContainsString('farmer-payments', $routes);
+        // Farmer payment: built.
+        $this->assertStringContainsString('payment-runs', $routes);
+        $this->assertStringContainsString('farmer-payments', $routes);
 
-        // The column §6.3 specifies exists, deliberately unconstrained and unused.
+        /*
+         * Transport payment: NOT built. `trips.payment_run_id` remains the
+         * unconstrained placeholder it always was — it does NOT point at
+         * `payment_runs`, which pays farmers, and wiring it there would silently
+         * conflate two different kinds of money.
+         */
         $this->assertTrue(Schema::hasColumn('trips', 'payment_run_id'));
         $this->assertSame(0, Trip::withoutDataScope()->whereNotNull('payment_run_id')->count());
 
@@ -687,15 +699,14 @@ class PhaseAcceptanceTest extends GondalTestCase
         $this->assertSame('5.00', (string) $world['cooperative']->savings_deduction_pct);
         $this->assertSame('2.00', (string) $world['cooperative']->levy_pct);
 
-        // The screen says the module is blocked rather than pretending otherwise.
+        // And Accounts can now reach the farmer payment module rather than a
+        // screen apologising for its absence.
         $accounts = $this->makeUser('Phase7 Accounts');
         $this->assignRole($accounts, 'Accounts');
         $this->flushSession();
         $this->actingAs($accounts->fresh());
 
-        $this->get(route('payroll.index'))
-            ->assertOk()
-            ->assertSee('Farmer and transport payments are not available yet.', false);
+        $this->get(route('payment-runs.index'))->assertOk()->assertSee('Farmer Payments');
     }
 
     /**

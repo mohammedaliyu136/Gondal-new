@@ -18,7 +18,12 @@ class Department extends Model
     use RecordsActor;
     use SoftDeletes;
 
-    protected $fillable = ['name', 'head_user_id', 'cost_centre', 'status', 'created_by_user_id'];
+    protected $fillable = [
+        'name', 'head_user_id', 'cost_centre', 'status', 'created_by_user_id',
+        // Advisory, never a block — see migration 2026_01_03_002300. Nothing
+        // refuses a payment because of these; the overrun is reported instead.
+        'budget_minor', 'budget_period',
+    ];
 
     public function head(): BelongsTo
     {

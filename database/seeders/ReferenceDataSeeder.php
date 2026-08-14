@@ -402,6 +402,23 @@ class ReferenceDataSeeder extends Seeder
             ['key' => 'cooperative.default_levy_pct', 'value' => '2', 'group' => 'cooperatives', 'label' => 'Cooperative levy (% of milk payment)', 'value_type' => 'decimal'],
             ['key' => 'cooperative.default_social_contribution_minor', 'value' => 25_000, 'group' => 'cooperatives', 'label' => 'Social fund contribution (₦ / member / month)', 'value_type' => 'integer'],
             // NG-1 — deferred by decision, so the loan book stays off.
+            /*
+             * §14 Phase 7 — the levy base. Decision 1.4 of
+             * docs/PLAN-FARMER-PAYMENTS.md and NOT a settled question: taking the
+             * levy on gross-less-savings is what payroll does for its sequential
+             * deductions, which is the only reason it is the default. Nobody has
+             * confirmed the cooperative's bye-laws say so. A row, not a constant,
+             * so answering it is an edit rather than a release.
+             */
+            /*
+             * §1.6 of docs/PLAN-FARMER-PAYMENTS.md — the most of one milk
+             * payment that may be taken to recover an old debt. Empty means
+             * recover everything, which is what the code did before this row
+             * existed and is also how a farmer ends up with three fortnights of
+             * nothing and no way to have been warned.
+             */
+            ['key' => 'cooperative.max_debt_recovery_pct', 'value' => '50', 'group' => 'cooperatives', 'label' => 'Most of a milk payment recoverable as debt (%)', 'value_type' => 'decimal', 'help_text' => 'A farmer always takes home at least the remainder. Leave blank to recover a debt in full, which can leave somebody with nothing on payout day.'],
+            ['key' => 'cooperative.levy_on_net_of_savings', 'value' => true, 'group' => 'cooperatives', 'label' => 'Take the levy after savings', 'value_type' => 'boolean', 'help_text' => 'On: levy is charged on gross less savings. Off: on gross. Confirm against the cooperative bye-laws.'],
             ['key' => 'cooperative.loan_book_enabled', 'value' => false, 'group' => 'cooperatives', 'label' => 'Loan book', 'value_type' => 'boolean', 'help_text' => 'Cooperative loans and investments are deferred to a future phase.'],
 
             // Shop

@@ -41,4 +41,15 @@
   @case('bell')
     <svg class="ic" viewBox="0 0 24 24" width="{{ $size }}" height="{{ $size }}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
     @break
+  @case('ledger')
+    {{-- Accounting. A ledger book with a column rule down it, not a stack of
+         coins: the section is about the record of money, and the one screen in
+         it that shows physical cash is only one of its two children. --}}
+    <svg class="ic" viewBox="0 0 24 24" width="{{ $size }}" height="{{ $size }}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4a2 2 0 0 1 2-2h13a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6a2 2 0 0 1-2-2z"/><line x1="8" y1="2" x2="8" y2="22"/><line x1="12" y1="8" x2="17" y2="8"/><line x1="12" y1="12" x2="17" y2="12"/><line x1="12" y1="16" x2="15" y2="16"/></svg>
+    @break
+  @case('chart')
+    {{-- Reports. Named in the nav since the sidebar was built and never drawn,
+         so the item rendered with an empty slot where every sibling has a mark. --}}
+    <svg class="ic" viewBox="0 0 24 24" width="{{ $size }}" height="{{ $size }}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="21" x2="21" y2="21"/><rect x="5" y="11" width="4" height="7"/><rect x="10" y="6" width="4" height="12"/><rect x="15" y="14" width="4" height="4"/></svg>
+    @break
 @endswitch

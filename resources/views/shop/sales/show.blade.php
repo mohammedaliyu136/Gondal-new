@@ -88,7 +88,15 @@
                 <div class="meta-value">{{ $deduction->description }}</div></div>
             </div>
             @if ($deduction->status === 'pending')
-              <div class="hint mt-8">Farmer payment runs are not available yet, so this is held against the next one.</div>
+              {{-- Phase 7 — this used to say payment runs did not exist. They do
+                   now, and a pending debt is recovered by the next one that
+                   covers this farmer, oldest first. --}}
+              <div class="hint mt-8">Recovered from this farmer&rsquo;s next milk payment.</div>
+            @elseif ($deduction->status === 'settled')
+              <div class="hint mt-8">
+                Recovered {{ $deduction->settled_at ? \App\Support\Wat::relative($deduction->settled_at) : '' }}
+                from a milk payment.
+              </div>
             @endif
           </div>
         </div>

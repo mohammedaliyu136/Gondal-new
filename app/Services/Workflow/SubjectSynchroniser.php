@@ -3,9 +3,13 @@
 namespace App\Services\Workflow;
 
 use App\Models\LeaveRequest;
+use App\Models\PaymentRun;
+use App\Models\TransportPaymentRun;
 use App\Models\PayrollRun;
 use App\Models\Requisition;
 use App\Services\Hr\LeaveService;
+use App\Services\Finance\FarmerPaymentRunService;
+use App\Services\Finance\TransportPaymentRunService;
 use App\Services\Hr\PayrollService;
 use App\Services\Purchases\RequisitionService;
 use Illuminate\Contracts\Container\Container;
@@ -58,6 +62,21 @@ class SubjectSynchroniser
 
         if ($subject instanceof PayrollRun) {
             $this->container->make(PayrollService::class)->syncFromWorkflow($subject);
+
+            return;
+        }
+
+        // §14 Phase 7. Without this arm the engine approves the instance and the
+        // run stays `processing` for ever: the money is cleared and nothing can
+        // be paid out against it, with no error anywhere to say why.
+        if ($subject instanceof TransportPaymentRun) {
+            $this->container->make(TransportPaymentRunService::class)->syncFromWorkflow($subject);
+
+            return;
+        }
+
+        if ($subject instanceof PaymentRun) {
+            $this->container->make(FarmerPaymentRunService::class)->syncFromWorkflow($subject);
         }
     }
 }

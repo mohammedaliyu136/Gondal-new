@@ -234,14 +234,31 @@ class AuditLogger
      * ------------------------------------------------------------------ */
 
     /**
+     * The module an approval belongs to.
+     *
+     * This was hardcoded to 'Purchases' on both approval() and rejection(),
+     * which was true when requisitions were the only thing anyone approved and
+     * quietly wrong from the moment payroll runs, batch discrepancies and leave
+     * started using the same engine. It matters because the audit log is
+     * filtered BY MODULE: an approval filed under Purchases is one an auditor
+     * looking at Finance will not see, and nothing fails — no test, no error,
+     * no symptom until somebody goes looking during an investigation.
+     *
+     * Defaulting keeps every existing caller behaving exactly as before.
+     *
      * @param  array<string, mixed>  $detail
      */
-    public function approval(Model $subject, string $summary, array $detail = [], ?User $actor = null): AuditEntry
-    {
+    public function approval(
+        Model $subject,
+        string $summary,
+        array $detail = [],
+        ?User $actor = null,
+        string $module = 'Purchases',
+    ): AuditEntry {
         return $this->write([
             'actor' => $actor,
             'event_type' => AuditEntry::EVENT_APPROVAL,
-            'module' => 'Purchases',
+            'module' => $module,
             'subject_type' => $subject::class,
             'subject_id' => $subject->getKey(),
             'summary' => $summary,
@@ -252,12 +269,17 @@ class AuditLogger
     /**
      * @param  array<string, mixed>  $detail
      */
-    public function rejection(Model $subject, string $summary, array $detail = [], ?User $actor = null): AuditEntry
-    {
+    public function rejection(
+        Model $subject,
+        string $summary,
+        array $detail = [],
+        ?User $actor = null,
+        string $module = 'Purchases',
+    ): AuditEntry {
         return $this->write([
             'actor' => $actor,
             'event_type' => AuditEntry::EVENT_REJECTION,
-            'module' => 'Purchases',
+            'module' => $module,
             'subject_type' => $subject::class,
             'subject_id' => $subject->getKey(),
             'summary' => $summary,

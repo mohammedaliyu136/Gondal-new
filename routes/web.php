@@ -17,6 +17,9 @@ use App\Http\Controllers\Community\ExtensionAgentController;
 use App\Http\Controllers\Community\FarmerController;
 use App\Http\Controllers\Community\FieldActivityController;
 use App\Http\Controllers\Community\ValidationController;
+use App\Http\Controllers\Finance\CashFloatController;
+use App\Http\Controllers\Finance\PaymentRunController;
+use App\Http\Controllers\Finance\TransportPaymentRunController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\Hr\DepartmentController;
 use App\Http\Controllers\Hr\EmployeeController;
@@ -276,6 +279,9 @@ Route::middleware(['auth', 'session.authenticate', 'account.usable', 'session.to
         Route::post('/requisitions/{requisition}/submit', [RequisitionController::class, 'submit'])->name('requisitions.submit');
         // BR-20 — resubmission starts a new instance.
         Route::post('/requisitions/{requisition}/resubmit', [RequisitionController::class, 'resubmit'])->name('requisitions.resubmit');
+    // §14 Phase 7 — an approval is a permission to spend, not a spend.
+    Route::post('/requisitions/{requisition}/spend', [RequisitionController::class, 'spend'])
+        ->middleware('permission:purchase.requisitions.spend')->name('requisitions.spend');
     });
 
     /* -------------------------- Community --------------------------- */
@@ -286,6 +292,70 @@ Route::middleware(['auth', 'session.authenticate', 'account.usable', 'session.to
      * check OUT needs `community.farmers.validate`, which M&E does not hold.
      * The field app works the same queue through /api/v1/validations.
      */
+    /*
+     * §14 Phase 7 — farmer payment. The module every other screen said was
+     * "not available yet".
+     *
+     * Note the split of authority: `create` generates and submits, `approve`
+     * clears (through WF-007, where BR-18 stops the preparer approving their
+     * own), and `disburse` records money handed over — held by the Collection
+     * Officer at the centre, deliberately NOT by the agent who recorded the
+     * milk.
+     */
+    Route::get('/payment-runs', [PaymentRunController::class, 'index'])
+        ->middleware('permission:finance.farmer_payments.view')->name('payment-runs.index');
+    Route::get('/payment-runs/{run}', [PaymentRunController::class, 'show'])
+        ->middleware('permission:finance.farmer_payments.view')->name('payment-runs.show');
+    Route::post('/payment-runs', [PaymentRunController::class, 'store'])
+        ->middleware('permission:finance.farmer_payments.create')->name('payment-runs.store');
+    Route::post('/payment-runs/{run}/submit', [PaymentRunController::class, 'submit'])
+        ->middleware('permission:finance.farmer_payments.create')->name('payment-runs.submit');
+    Route::post('/payment-runs/{run}/cancel', [PaymentRunController::class, 'cancel'])
+        ->middleware('permission:finance.farmer_payments.create')->name('payment-runs.cancel');
+    Route::post('/farmer-payments/{payment}/disburse', [PaymentRunController::class, 'disburse'])
+        ->middleware('permission:finance.farmer_payments.disburse')->name('farmer-payments.disburse');
+    Route::post('/payment-runs/{run}/reverse', [PaymentRunController::class, 'reverseRun'])
+        ->middleware('permission:finance.farmer_payments.reverse')->name('payment-runs.reverse');
+    Route::post('/farmer-payments/{payment}/reverse', [PaymentRunController::class, 'reversePayment'])
+        ->middleware('permission:finance.farmer_payments.reverse')->name('farmer-payments.reverse');
+    // USER-2 — printed FOR a farmer, never logged into by one. The second
+    // authorisation layer (this farmer, this caller's scope) is in the controller.
+    Route::get('/farmers/{farmer}/statement', [PaymentRunController::class, 'statement'])
+        ->middleware('permission:finance.farmer_payments.view')->name('farmers.statement');
+    // Deliberately NOT on community.farmers.edit — see the controller. Changing
+    // where money is sent is a finance act, not a register correction.
+    Route::put('/farmers/{farmer}/payout-details', [PaymentRunController::class, 'updatePayoutDetails'])
+        ->middleware('permission:finance.farmer_payments.create')->name('farmers.payout-details');
+
+    /*
+     * §14 Phase 7 — transport payment. `logistics.payments` gated nothing for
+     * three phases; these are the screens it was always for.
+     */
+    Route::get('/transport-payments', [TransportPaymentRunController::class, 'index'])
+        ->middleware('permission:logistics.payments.view')->name('transport-payments.index');
+    Route::get('/transport-payments/{run}', [TransportPaymentRunController::class, 'show'])
+        ->middleware('permission:logistics.payments.view')->name('transport-payments.show');
+    Route::post('/transport-payments', [TransportPaymentRunController::class, 'store'])
+        ->middleware('permission:logistics.payments.create')->name('transport-payments.store');
+    Route::post('/transport-payments/{run}/submit', [TransportPaymentRunController::class, 'submit'])
+        ->middleware('permission:logistics.payments.create')->name('transport-payments.submit');
+    Route::post('/transport-payments/{run}/cancel', [TransportPaymentRunController::class, 'cancel'])
+        ->middleware('permission:logistics.payments.create')->name('transport-payments.cancel');
+    Route::post('/transport-payments/{run}/reverse', [TransportPaymentRunController::class, 'reverseRun'])
+        ->middleware('permission:logistics.payments.reverse')->name('transport-payments.reverse');
+    Route::post('/driver-payments/{payment}/disburse', [TransportPaymentRunController::class, 'disburse'])
+        ->middleware('permission:logistics.payments.disburse')->name('driver-payments.disburse');
+    Route::post('/driver-payments/{payment}/reverse', [TransportPaymentRunController::class, 'reversePayment'])
+        ->middleware('permission:logistics.payments.reverse')->name('driver-payments.reverse');
+
+    // §14 Phase 7 — the cash book. The second leg of every payout.
+    Route::get('/cash-floats', [CashFloatController::class, 'index'])
+        ->middleware('permission:finance.cash.view')->name('cash-floats.index');
+    Route::post('/cash-floats', [CashFloatController::class, 'store'])
+        ->middleware('permission:finance.cash.issue')->name('cash-floats.store');
+    Route::post('/cash-floats/{float}/reconcile', [CashFloatController::class, 'reconcile'])
+        ->middleware('permission:finance.cash.reconcile')->name('cash-floats.reconcile');
+
     Route::get('/validations', [ValidationController::class, 'index'])
         ->middleware('permission:community.validation.view')->name('validations.index');
     Route::post('/validations', [ValidationController::class, 'store'])

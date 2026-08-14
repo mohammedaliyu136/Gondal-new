@@ -32,6 +32,17 @@ class Cooperative extends Model implements Scopeable
 
     public const ACCOUNT_SOCIAL = 'social';
 
+    /**
+     * §14 Phase 7 — members' savings, held by the cooperative.
+     *
+     * Kept apart from the general account on purpose. General is the
+     * cooperative's own trading account and a credit purchase from the shop
+     * draws it down; savings is members' money and must not be eaten by the
+     * cooperative's debts. Still POOLED, not per-farmer — see
+     * docs/PLAN-FARMER-PAYMENTS.md §8 increment 7.
+     */
+    public const ACCOUNT_SAVINGS = 'savings';
+
     protected $fillable = [
         'code', 'name', 'registered_on', 'community_id', 'lga_id',
         'chairman_name', 'secretary_name', 'treasurer_name', 'contact_phone',
@@ -140,6 +151,12 @@ class Cooperative extends Model implements Scopeable
     {
         return $this->accounts->firstWhere('kind', self::ACCOUNT_SOCIAL)
             ?? $this->accounts()->where('kind', self::ACCOUNT_SOCIAL)->first();
+    }
+
+    public function savingsAccount(): ?CooperativeAccount
+    {
+        return $this->accounts->firstWhere('kind', self::ACCOUNT_SAVINGS)
+            ?? $this->accounts()->where('kind', self::ACCOUNT_SAVINGS)->first();
     }
 
     public function scopeActive(Builder $query): Builder

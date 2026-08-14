@@ -37,6 +37,12 @@ class Workflow extends Model
 
     public const APPLIES_BATCH_DISCREPANCY = 'batch_discrepancy';
 
+    /** §14 Phase 7 — a batch of money owed to farmers. */
+    public const APPLIES_FARMER_PAYMENT_RUN = 'farmer_payment_run';
+
+    /** §14 Phase 7 — a batch of money owed to riders and drivers. */
+    public const APPLIES_TRANSPORT_PAYMENT_RUN = 'transport_payment_run';
+
     protected $fillable = [
         'code', 'name', 'description', 'applies_to', 'status', 'options', 'created_by_user_id',
     ];

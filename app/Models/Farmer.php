@@ -33,6 +33,14 @@ class Farmer extends Model implements Scopeable
         'community_id', 'lga_id', 'cooperative_id', 'cooperative_member_no',
         'default_collection_point_id', 'herd_size', 'lactating_count',
         'enrolled_by_user_id', 'enrolled_on', 'last_validated_on', 'status', 'created_by_user_id',
+        /*
+         * Where this farmer's money goes. Fillable, but deliberately NOT part of
+         * the `community.farmers.edit` form: an Extension Agent may correct a
+         * farmer's herd size and must not be able to point their bank payments
+         * somewhere else. Written only by the finance payout-details action,
+         * which is gated on finance.farmer_payments.create.
+         */
+        'payout_method', 'bank_name', 'bank_account_masked', 'mobile_money_number',
     ];
 
     protected function casts(): array

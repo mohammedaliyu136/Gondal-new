@@ -33,11 +33,19 @@
   </div>
 
   @if ($seesSavings)
-    <div class="grid grid-2 mb-16">
+    <div class="grid grid-3 mb-16">
       <div class="fund">
         <div class="fund-label">General cooperative fund</div>
         <div class="fund-value">{{ \App\Support\Money::format($cooperative->generalAccount()?->balance_minor ?? 0) }}</div>
         <div class="fund-foot">{{ $generalEntries->count() }} recent entries</div>
+      </div>
+      {{-- Members' money, kept off the general account so a purchase on credit
+           cannot draw it down. Pooled, not per-member: the cooperative can be
+           told what the pool holds, a member still cannot be told their share. --}}
+      <div class="fund">
+        <div class="fund-label">Members' savings held</div>
+        <div class="fund-value">{{ \App\Support\Money::format($cooperative->savingsAccount()?->balance_minor ?? 0) }}</div>
+        <div class="fund-foot">{{ $cooperative->savings_deduction_pct ? rtrim(rtrim((string) $cooperative->savings_deduction_pct, '0'), '.').'% of milk value' : 'no deduction set' }}</div>
       </div>
       <div class="fund">
         <div class="fund-label">Social fund</div>

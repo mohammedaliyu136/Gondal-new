@@ -92,8 +92,9 @@ class FarmerController extends Controller
                 : null,
             'openFollowups' => $this->followups->openFor($farmer),
             'activities' => $farmer->fieldActivities()->with(['activityType', 'extensionAgent.user'])->latest('activity_date')->limit(10)->get(),
-            // BR-30 — deductions awaiting the farmer's next payment. §15.1 — the
-            // payment module itself is blocked, so these are shown, not settled.
+            // BR-30 — deductions awaiting the farmer's next payment. Phase 7
+            // settles these on a payment run; until one is generated they sit
+            // here, which is what this list is for.
             'pendingDeductions' => $this->allows('shop.sales.view')
                 ? $farmer->pendingDeductions()->pending()->with('sale')->get()
                 : collect(),

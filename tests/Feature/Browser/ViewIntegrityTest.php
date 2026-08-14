@@ -3,6 +3,7 @@
 namespace Tests\Feature\Browser;
 
 use App\Exceptions\RuleViolationException;
+use App\Support\Navigation;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\File;
 use Tests\GondalTestCase;
@@ -322,6 +323,45 @@ class ViewIntegrityTest extends GondalTestCase
         }
 
         $this->assertSame([], $problems, implode("\n", $problems));
+    }
+
+
+    /**
+     * Every icon the sidebar asks for is one the icon partial can actually draw.
+     *
+     * `partials/icon.blade.php` is a @switch with no default, so an unknown name
+     * renders NOTHING — no error, no fallback, just an empty slot where every
+     * sibling item has a mark. `chart` was named on Reports since the sidebar
+     * was first built and never drawn, and `cash` joined it when the payment
+     * module landed. Neither failed anything; they simply looked like a
+     * stylistic choice.
+     */
+    public function test_every_navigation_icon_is_one_the_partial_can_draw(): void
+    {
+        $partial = File::get(resource_path('views/partials/icon.blade.php'));
+
+        preg_match_all("/@case\('([a-z0-9_-]+)'\)/i", $partial, $matches);
+        $drawable = $matches[1];
+
+        $this->assertNotEmpty($drawable, 'the icon partial should define some icons');
+
+        $named = [];
+
+        foreach (Navigation::definition() as $item) {
+            if (isset($item['icon'])) {
+                $named[$item['icon']] = $item['label'];
+            }
+        }
+
+        $missing = [];
+
+        foreach ($named as $icon => $label) {
+            if (! in_array($icon, $drawable, true)) {
+                $missing[] = sprintf('%s asks for "%s", which partials/icon.blade.php does not draw', $label, $icon);
+            }
+        }
+
+        $this->assertSame([], $missing, implode("\n", $missing));
     }
 
     /**

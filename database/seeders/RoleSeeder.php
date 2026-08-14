@@ -159,6 +159,21 @@ class RoleSeeder extends Seeder
                 ],
                 // Restriction: no other center, no payroll, NO network total.
                 'grants' => [
+                    /*
+                     * Phase 7 — farmer payment. Stated HERE as well as in
+                     * migration 001600 because this catalogue rewrites
+                     * permission_role on every seed: a grant that lives only
+                     * in a migration is taken straight back off at the next
+                     * db:seed. That is exactly how milk.deliveries.cutoff_override
+                     * ended up sensitive, real, and held by nobody.
+                     */
+                    'finance.farmer_payments' => ['view', 'disburse'],
+                    // The officer who hands cash to a farmer at a centre hands
+                    // it to the rider who carried the milk there too.
+                    'logistics.payments' => ['view', 'disburse'],
+                    // Sees their own float and what the system thinks they have
+                    // handed over. Cannot sign it back in — see migration 002100.
+                    'finance.cash' => ['view'],
                     'milk.points' => ['view'],
                     // BR-3 — the centre officer is the other role §5.1 puts
                     // above the point, and the migration that introduced this
@@ -402,6 +417,15 @@ class RoleSeeder extends Seeder
                 // Restriction: reads data, does not edit it. Every grant below
                 // is `view` or `approve` — that is the restriction, in data.
                 'grants' => [
+                    /*
+                     * Phase 7 — farmer payment. Stated HERE as well as in
+                     * migration 001600 because this catalogue rewrites
+                     * permission_role on every seed: a grant that lives only
+                     * in a migration is taken straight back off at the next
+                     * db:seed. That is exactly how milk.deliveries.cutoff_override
+                     * ended up sensitive, real, and held by nobody.
+                     */
+                    'finance.farmer_payments' => ['view'],
                     'purchase.requisitions' => ['view', 'approve'],
                     'purchase.approve.audit' => ['approve'],
                     'admin.audit' => ['view'],
@@ -441,6 +465,15 @@ class RoleSeeder extends Seeder
                 ],
                 // Restriction: BR-18 — cannot raise and approve the same request.
                 'grants' => [
+                    /*
+                     * Phase 7 — farmer payment. Stated HERE as well as in
+                     * migration 001600 because this catalogue rewrites
+                     * permission_role on every seed: a grant that lives only
+                     * in a migration is taken straight back off at the next
+                     * db:seed. That is exactly how milk.deliveries.cutoff_override
+                     * ended up sensitive, real, and held by nobody.
+                     */
+                    'finance.farmer_payments' => ['view'],
                     'purchase.requisitions' => ['view', 'create', 'approve'],
                     'purchase.approve.ed' => ['approve'],
                     'milk.points' => ['view'],
@@ -483,11 +516,34 @@ class RoleSeeder extends Seeder
                 // Restriction: cannot change a grade or a confirmed litre count,
                 // and cannot create users or edit roles.
                 'grants' => [
-                    'purchase.requisitions' => ['view', 'approve'],
+                    /*
+                     * Phase 7 — farmer payment. Stated HERE as well as in
+                     * migration 001600 because this catalogue rewrites
+                     * permission_role on every seed: a grant that lives only
+                     * in a migration is taken straight back off at the next
+                     * db:seed. That is exactly how milk.deliveries.cutoff_override
+                     * ended up sensitive, real, and held by nobody.
+                     */
+                    'finance.farmer_payments' => ['view', 'create', 'approve', 'reverse'],
+                    // `spend` recorded here as well as in migration 002400: this
+                    // catalogue rewrites permission_role on every seed, so a grant
+                    // that lives only in a migration is taken straight back off.
+                    'purchase.requisitions' => ['view', 'approve', 'spend'],
                     'purchase.approve.accounts' => ['approve'],
                     'hr.payroll' => '*',
                     'hr.employees' => ['view'],
                     'logistics.payments' => '*',
+                    'finance.cash' => '*',
+                    /*
+                     * Without this the cost-per-litre report answered ₦0.00 to
+                     * the only role with a reason to run it: SCOPE-4 sends
+                     * every aggregate through the model's global scope, and a
+                     * role holding no `milk.deliveries` scope at all resolves
+                     * to an empty set rather than an error. View only — the
+                     * cut-off override and recording a delivery stay at the
+                     * point.
+                     */
+                    'milk.deliveries' => ['view'],
                     'logistics.trips' => ['view'],
                     'community.coop.savings' => ['view', 'create', 'edit'],
                     'community.cooperatives' => ['view'],
@@ -519,6 +575,15 @@ class RoleSeeder extends Seeder
                 // Restriction: no delegate configured — a single point of
                 // failure the workflow screen warns about.
                 'grants' => [
+                    /*
+                     * Phase 7 — farmer payment. Stated HERE as well as in
+                     * migration 001600 because this catalogue rewrites
+                     * permission_role on every seed: a grant that lives only
+                     * in a migration is taken straight back off at the next
+                     * db:seed. That is exactly how milk.deliveries.cutoff_override
+                     * ended up sensitive, real, and held by nobody.
+                     */
+                    'finance.farmer_payments' => ['view', 'approve', 'reverse'],
                     'purchase.requisitions' => ['view', 'create', 'approve'],
                     'purchase.approve.gm' => ['approve'],
                     'milk.points' => ['view'],
@@ -528,7 +593,8 @@ class RoleSeeder extends Seeder
                     'milk.reconciliation' => ['view'],
                     'milk.totals.network' => ['view'],
                     'logistics.trips' => ['view'],
-                    'logistics.payments' => ['view'],
+                    'logistics.payments' => ['view', 'approve', 'reverse'],
+                    'finance.cash' => ['view', 'issue', 'reconcile'],
                     'community.farmers' => ['view'],
                     'community.cooperatives' => ['view'],
                     'community.coop.savings' => ['view'],
@@ -726,6 +792,15 @@ class RoleSeeder extends Seeder
                  * than when somebody remembers to revoke it.
                  */
                 'grants' => [
+                    /*
+                     * Phase 7 — farmer payment. Stated HERE as well as in
+                     * migration 001600 because this catalogue rewrites
+                     * permission_role on every seed: a grant that lives only
+                     * in a migration is taken straight back off at the next
+                     * db:seed. That is exactly how milk.deliveries.cutoff_override
+                     * ended up sensitive, real, and held by nobody.
+                     */
+                    'finance.farmer_payments' => ['view'],
                     'admin.audit' => ['view'],
                     'admin.settings' => ['view'],
                     'milk.points' => ['view'],

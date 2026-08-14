@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\LeaveRequest;
+use App\Models\PaymentRun;
+use App\Models\TransportPaymentRun;
 use App\Models\PayrollRun;
 use App\Models\Requisition;
 use App\Models\WorkflowInstance;
@@ -12,6 +14,8 @@ use App\Services\Purchases\RequisitionService;
 use App\Services\Workflow\WorkflowEngine;
 use App\Support\Money;
 use Illuminate\Http\RedirectResponse;
+use App\Services\Finance\FarmerPaymentRunService;
+use App\Services\Finance\TransportPaymentRunService;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
 
@@ -106,6 +110,8 @@ class ApprovalsController extends Controller
             $subject instanceof Requisition => $this->requisitions->syncFromWorkflow($subject),
             $subject instanceof LeaveRequest => $this->leave->syncFromWorkflow($subject),
             $subject instanceof PayrollRun => $this->payroll->syncFromWorkflow($subject),
+            $subject instanceof PaymentRun => app(FarmerPaymentRunService::class)->syncFromWorkflow($subject),
+            $subject instanceof TransportPaymentRun => app(TransportPaymentRunService::class)->syncFromWorkflow($subject),
             default => null,
         };
     }
