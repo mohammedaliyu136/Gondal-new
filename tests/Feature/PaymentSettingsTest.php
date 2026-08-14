@@ -2,16 +2,22 @@
 
 namespace Tests\Feature;
 
-use App\Models\User;
 use App\Services\Payment\DTOs\PaymentInitRequest;
 use App\Services\Payment\Gateways\PaymentGatewayFactory;
 use App\Services\Payment\PaymentService;
-use App\Support\Settings;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 class PaymentSettingsTest extends TestCase
 {
+    /*
+     * getGatewayStatuses() reads each gateway's mode out of Settings, which is a
+     * table read. Without migrations the sqlite database is empty and the read
+     * fails on "no such table: settings" rather than on anything to do with
+     * payments.
+     */
+    use RefreshDatabase;
+
     public function test_payment_gateway_factory_resolves_gateways(): void
     {
         $paystack = PaymentGatewayFactory::create('paystack');
