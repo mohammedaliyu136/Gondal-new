@@ -530,6 +530,12 @@ Route::middleware(['auth', 'session.authenticate', 'account.usable', 'session.to
         ->middleware('permission:hr.payroll.create')->name('payroll.store');
     Route::post('/payroll/{payrollRun}/submit', [PayrollController::class, 'submit'])
         ->middleware('permission:hr.payroll.create')->name('payroll.submit');
+    Route::post('/payroll/{payrollRun}/paid', [PayrollController::class, 'markPaid'])
+        ->middleware('permission:hr.payroll.approve')->name('payroll.paid');
+    Route::get('/payroll/{payrollRun}/payment', [PayrollController::class, 'payment'])
+        ->middleware('permission:hr.payroll.view')->name('payroll.payment');
+    Route::post('/payroll/{payrollRun}/disburse', [PayrollController::class, 'disburse'])
+        ->middleware('permission:hr.payroll.approve')->name('payroll.disburse');
 
     // §4 — `hr.payroll.view` OR own.
     Route::get('/payroll/payslips/{payslip}', [PayrollController::class, 'payslip'])

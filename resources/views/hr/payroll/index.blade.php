@@ -71,14 +71,18 @@
               <button type="submit" class="btn btn-primary btn-sm">Submit for approval</button>
             </form>
           @endif
-          @if ($canMarkPaid && $current->status === 'approved')
-            <form method="POST" action="{{ route('payroll.paid', $current) }}">
-              @csrf
-              <button type="submit" class="btn btn-primary btn-sm">Mark paid</button>
-            </form>
+          @if ($current->status === 'approved')
+            @if ($canDisburse)
+              <a href="{{ route('payroll.payment', $current) }}" class="btn btn-primary btn-sm">Pay Run &rarr;</a>
+            @else
+              <span class="badge success">Approved &middot; Awaiting Disbursement</span>
+            @endif
           @endif
-          @if ($current->status === 'paid' && $current->paid_at)
-            <span class="badge success">Paid {{ \App\Support\Wat::dateTime($current->paid_at) }}</span>
+          @if ($current->status === 'paid')
+            <div class="flex" style="gap:8px;align-items:center">
+              <span class="badge success">Paid {{ $current->paid_at ? \App\Support\Wat::dateTime($current->paid_at) : '' }}</span>
+              <a href="{{ route('payroll.payment', $current) }}" class="btn btn-ghost btn-sm">View Payment Breakdown</a>
+            </div>
           @endif
         </div>
         <div class="card-body flush">
@@ -117,7 +121,7 @@
         <div class="table-wrap">
           <table>
             <thead><tr><th>Period</th><th class="num">Employees</th><th class="num">Gross</th>
-              <th class="num">Net</th><th>Stage</th><th>Status</th><th>Run by</th></tr></thead>
+              <th class="num">Net</th><th>Stage</th><th>Status</th><th>Run by</th><th class="actions">Actions</th></tr></thead>
             <tbody>
               @forelse ($runs as $run)
                 <tr>
@@ -129,9 +133,27 @@
                   <td><span class="badge {{ ['draft' => 'muted', 'processing' => 'warning', 'approved' => 'success', 'paid' => 'success'][$run->status] ?? 'muted' }}">
                     {{ ucfirst($run->status) }}</span></td>
                   <td>{{ $run->runBy?->name }}</td>
+                  <td class="actions">
+                    @if ($run->status === 'approved')
+                      @if ($canDisburse)
+                        <a href="{{ route('payroll.payment', $run) }}" class="btn btn-primary btn-sm">Pay</a>
+                      @else
+                        <span class="badge success">Approved</span>
+                      @endif
+                    @elseif ($run->status === 'paid')
+                      <a href="{{ route('payroll.payment', $run) }}" class="btn btn-ghost btn-sm">View Payout</a>
+                    @elseif ($run->status === 'draft' && $canRun)
+                      <form method="POST" action="{{ route('payroll.submit', $run) }}" style="display:inline">
+                        @csrf
+                        <button type="submit" class="btn btn-ghost btn-sm">Submit</button>
+                      </form>
+                    @else
+                      <span class="text-muted text-small">&mdash;</span>
+                    @endif
+                  </td>
                 </tr>
               @empty
-                <tr><td colspan="7">@include('partials.empty', ['title' => 'No payroll runs yet', 'icon' => '&#128181;'])</td></tr>
+                <tr><td colspan="8">@include('partials.empty', ['title' => 'No payroll runs yet', 'icon' => '&#128181;'])</td></tr>
               @endforelse
             </tbody>
           </table>

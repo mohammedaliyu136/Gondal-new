@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\PayrollRun;
 use App\Models\Payslip;
 use App\Services\Hr\PayrollService;
+use App\Services\Payment\PaymentService;
+use App\Support\Money;
 use App\Support\Wat;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -13,7 +15,7 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\View\View;
 
 /**
- * payroll.html and payslip.html.
+ * payroll.html, payslip.html, and payment.html.
  *
  * G-6 — payroll is the sharpest sensitive boundary in the system. Only
  *   hr.payroll.view reaches the run; a member of staff reaches THEIR OWN payslip
@@ -24,7 +26,10 @@ use Illuminate\View\View;
  */
 class PayrollController extends Controller
 {
-    public function __construct(private readonly PayrollService $payroll) {}
+    public function __construct(
+        private readonly PayrollService $payroll,
+        private readonly PaymentService $paymentService,
+    ) {}
 
     public function index(Request $request): View
     {
@@ -51,6 +56,7 @@ class PayrollController extends Controller
                 : $current->payslips()->with('employee.department')->orderBy('id')
                     ->paginate($this->perPage($request->integer('per_page') ?: null), ['*'], 'payslip_page'),
             'canRun' => $this->allows('hr.payroll.create'),
+            'canDisburse' => $this->allows('hr.payroll.approve'),
             /*
              * Route::has because the POST is registered separately from this
              * screen; without the guard the whole page 500s while the two halves
@@ -105,6 +111,52 @@ class PayrollController extends Controller
         $this->payroll->markPaid($payrollRun, $this->currentUser());
 
         return back()->with('success', $payrollRun->periodLabel().' marked paid.');
+    }
+
+    /**
+     * Dedicated disbursement breakdown and payment page for an approved/paid payroll run.
+     */
+    public function payment(PayrollRun $payrollRun, Request $request): View
+    {
+        $this->authorizeAccess('hr.payroll.view', $payrollRun, 'Payroll Payment Details');
+
+        $payrollRun->load(['runBy', 'workflowInstance.currentStage.approvingRole', 'workflowInstance.actions.actor']);
+
+        $payslips = $payrollRun->payslips()
+            ->with('employee.department')
+            ->orderBy('id')
+            ->paginate($this->perPage($request->integer('per_page') ?: 50));
+
+        $gateways = $this->paymentService->getGatewayStatuses();
+
+        return view('hr.payroll.payment', [
+            'run' => $payrollRun,
+            'payslips' => $payslips,
+            'gateways' => $gateways,
+            'canDisburse' => $this->allows('hr.payroll.approve'),
+        ]);
+    }
+
+    /**
+     * Disburse payroll payments via configured gateway or record bank transfer settlement.
+     */
+    public function disburse(Request $request, PayrollRun $payrollRun): RedirectResponse
+    {
+        $this->authorizeAccess('hr.payroll.approve', $payrollRun, 'Disburse Payroll Payment');
+
+        $validated = $request->validate([
+            'payment_method' => ['required', 'string', 'in:bank_transfer,paystack,monnify,zainpay,cash'],
+            'reference_notes' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $this->payroll->markPaid($payrollRun, $this->currentUser());
+
+        return redirect()->route('payroll.payment', $payrollRun)->with('success', sprintf(
+            'Payroll for %s (%s) has been successfully disbursed via %s.',
+            $payrollRun->periodLabel(),
+            Money::format((int) $payrollRun->net_total_minor),
+            ucfirst(str_replace('_', ' ', $validated['payment_method']))
+        ));
     }
 
     /**
