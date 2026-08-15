@@ -59,7 +59,14 @@
             @forelse ($queue as $instance)
               <tr>
                 <td>
-                  @if ($instance->subject instanceof \App\Models\Requisition)
+                  @if ($instance->subject instanceof \App\Contracts\WorkflowSubjectInterface)
+                    @if ($instance->subject->getApprovalUrl())
+                      <a href="{{ $instance->subject->getApprovalUrl() }}" class="perm-key">{{ $instance->subject->getApprovalReference() }}</a>
+                    @else
+                      <span class="perm-key">{{ $instance->subject->getApprovalReference() }}</span>
+                    @endif
+                    <div class="cell-sub">{{ $instance->subject->getApprovalTitle() }}</div>
+                  @elseif ($instance->subject instanceof \App\Models\Requisition)
                     <a href="{{ route('requisitions.show', $instance->subject) }}" class="perm-key">{{ $instance->subject->reference }}</a>
                     <div class="cell-sub">{{ $instance->subject->title }}</div>
                   @else

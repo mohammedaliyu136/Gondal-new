@@ -16,10 +16,13 @@ use App\Models\Lga;
 use App\Models\Permission;
 use App\Models\QualityTestDefinition;
 use App\Models\RejectionReason;
+use App\Models\Role;
 use App\Models\Route as TransportRoute;
 use App\Models\Sequence;
 use App\Models\Workflow;
+use App\Models\WorkflowBand;
 use App\Models\WorkflowInstance;
+use App\Models\WorkflowStage;
 use App\Services\Audit\AuditLogger;
 use App\Support\Money;
 use App\Support\Navigation;
@@ -303,18 +306,30 @@ class SettingsController extends Controller
     }
 
     /** §6.5 — settings-workflows.html. */
-    public function workflows(): View
+    public function workflows(Request $request): View
     {
         $workflows = Workflow::query()
             ->with(['stages.approvingRole', 'bands.stages'])
             ->orderBy('code')
             ->get();
 
-        $requisition = $workflows->firstWhere('applies_to', Workflow::APPLIES_REQUISITION);
+        $selectedId = $request->query('workflow');
+        $selected = $selectedId
+            ? $workflows->firstWhere('id', (int) $selectedId)
+            : ($workflows->firstWhere('applies_to', Workflow::APPLIES_REQUISITION) ?? $workflows->first());
+
+        if ($selected === null && $workflows->isNotEmpty()) {
+            $selected = $workflows->first();
+        }
+
+        $roles = Role::query()->where('status', Role::STATUS_ACTIVE)->orderBy('name')->get();
+        $permissions = Permission::query()->live()->orderBy('resource_key')->orderBy('position')->get();
 
         return view('admin.settings.workflows', [
             'workflows' => $workflows,
-            'selected' => $requisition,
+            'selected' => $selected,
+            'roles' => $roles,
+            'permissions' => $permissions,
             'inFlight' => WorkflowInstance::query()
                 ->open()
                 ->selectRaw('workflow_id, count(*) as total')
@@ -322,9 +337,9 @@ class SettingsController extends Controller
                 ->pluck('total', 'workflow_id'),
             // settings-workflows.html "Who Holds Each Stage" — resolved from
             // current role assignments (BR-23).
-            'stageHolders' => $requisition === null
+            'stageHolders' => $selected === null
                 ? collect()
-                : $requisition->stages
+                : $selected->stages
                     ->filter(fn ($stage) => $stage->approving_role_id !== null)
                     ->mapWithKeys(fn ($stage) => [
                         $stage->getKey() => [
@@ -345,15 +360,63 @@ class SettingsController extends Controller
         ]);
     }
 
+    public function storeWorkflow(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'code' => ['required', 'string', 'max:16', 'unique:workflows,code'],
+            'name' => ['required', 'string', 'max:255'],
+            'applies_to' => ['required', 'string', 'max:32'],
+            'description' => ['nullable', 'string', 'max:1000'],
+            'status' => ['required', 'in:active,disabled'],
+        ]);
+
+        $workflow = Workflow::query()->create([
+            'code' => strtoupper($validated['code']),
+            'name' => $validated['name'],
+            'applies_to' => strtolower($validated['applies_to']),
+            'description' => $validated['description'] ?? null,
+            'status' => $validated['status'],
+            'options' => [
+                'strict_sequence' => true,
+                'rejection_returns_to_requester' => true,
+                'approver_may_reduce_amount' => true,
+                'allow_request_info' => true,
+                'allow_delegation' => true,
+                'auto_escalate_on_sla' => false,
+                'requester_may_not_approve_own' => true,
+                'overdue_reminder' => 'daily',
+            ],
+            'created_by_user_id' => $this->currentUser()?->getKey(),
+        ]);
+
+        $this->audit->created(
+            $workflow,
+            sprintf('Created workflow %s (%s)', $workflow->code, $workflow->name),
+            'Settings',
+            ['rules' => ['§6.5', '§9']],
+            $this->currentUser()
+        );
+
+        return redirect()->route('admin.settings.workflows', ['workflow' => $workflow->id])
+            ->with('success', sprintf('Workflow "%s" created. You can now add approval stages.', $workflow->name));
+    }
+
     public function updateWorkflow(Request $request, Workflow $workflow): RedirectResponse
     {
         $validated = $request->validate([
+            'name' => ['nullable', 'string', 'max:255'],
+            'description' => ['nullable', 'string', 'max:1000'],
             'status' => ['required', 'in:active,disabled'],
             'options' => ['nullable', 'array'],
             'overdue_reminder' => ['required', 'in:daily,twelve_hourly,once,never'],
         ]);
 
-        $before = ['status' => $workflow->status, 'options' => $workflow->options];
+        $before = [
+            'name' => $workflow->name,
+            'description' => $workflow->description,
+            'status' => $workflow->status,
+            'options' => $workflow->options,
+        ];
 
         $options = array_merge($workflow->options ?? [], [
             'strict_sequence' => $request->boolean('options.strict_sequence'),
@@ -368,7 +431,19 @@ class SettingsController extends Controller
             'overdue_reminder' => $validated['overdue_reminder'],
         ]);
 
-        $workflow->fill(['status' => $validated['status'], 'options' => $options])->save();
+        $updateData = [
+            'status' => $validated['status'],
+            'options' => $options,
+        ];
+
+        if (!empty($validated['name'])) {
+            $updateData['name'] = $validated['name'];
+        }
+        if (array_key_exists('description', $validated)) {
+            $updateData['description'] = $validated['description'];
+        }
+
+        $workflow->fill($updateData)->save();
 
         $this->audit->edited(
             $workflow,
@@ -379,6 +454,228 @@ class SettingsController extends Controller
             $this->currentUser(),
         );
 
-        return back()->with('success', $workflow->name.' updated. Changes apply to newly raised items only.');
+        return redirect()->route('admin.settings.workflows', ['workflow' => $workflow->id])
+            ->with('success', $workflow->name.' updated. Changes apply to newly raised items only.');
+    }
+
+    public function storeWorkflowStage(Request $request, Workflow $workflow): RedirectResponse
+    {
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'position' => ['required', 'integer', 'min:1'],
+            'approving_role_id' => ['nullable', 'exists:roles,id'],
+            'required_permission' => ['nullable', 'string', 'max:80'],
+            'condition_type' => ['required', 'in:always,amount_above,department,category'],
+            'condition_value' => ['nullable', 'string', 'max:255'],
+            'sla_hours' => ['nullable', 'integer', 'min:1', 'max:720'],
+            'can_reject' => ['nullable', 'boolean'],
+            'is_submission' => ['nullable', 'boolean'],
+        ]);
+
+        $isSubmission = $request->boolean('is_submission');
+        $approvingRoleId = $isSubmission ? null : ($validated['approving_role_id'] ?? null);
+
+        if (!$isSubmission && empty($approvingRoleId)) {
+            return back()->withErrors(['approving_role_id' => 'An approval stage requires an Approving Role.'])->withInput();
+        }
+
+        $conditionValue = $validated['condition_value'] ?? null;
+        if ($validated['condition_type'] === WorkflowStage::CONDITION_AMOUNT_ABOVE && $conditionValue !== null) {
+            $minor = Money::fromMajor($conditionValue);
+            $conditionValue = $minor !== null ? (string) $minor : $conditionValue;
+        }
+
+        $stage = $workflow->stages()->create([
+            'position' => $validated['position'],
+            'name' => $validated['name'],
+            'approving_role_id' => $approvingRoleId,
+            'required_permission' => $validated['required_permission'] ?: null,
+            'condition_type' => $validated['condition_type'],
+            'condition_value' => $conditionValue,
+            'sla_hours' => $validated['sla_hours'] ?? null,
+            'can_reject' => $isSubmission ? false : $request->boolean('can_reject', true),
+            'is_submission' => $isSubmission,
+        ]);
+
+        $this->audit->created(
+            $stage,
+            sprintf('Added stage "%s" (Position %d) to workflow %s', $stage->name, $stage->position, $workflow->code),
+            'Settings',
+            ['workflow' => $workflow->code, 'role_id' => $stage->approving_role_id, 'rules' => ['BR-23']],
+            $this->currentUser()
+        );
+
+        return redirect()->route('admin.settings.workflows', ['workflow' => $workflow->id])
+            ->with('success', sprintf('Stage "%s" added to %s.', $stage->name, $workflow->name));
+    }
+
+    public function updateWorkflowStage(Request $request, Workflow $workflow, WorkflowStage $stage): RedirectResponse
+    {
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'position' => ['required', 'integer', 'min:1'],
+            'approving_role_id' => ['nullable', 'exists:roles,id'],
+            'required_permission' => ['nullable', 'string', 'max:80'],
+            'condition_type' => ['required', 'in:always,amount_above,department,category'],
+            'condition_value' => ['nullable', 'string', 'max:255'],
+            'sla_hours' => ['nullable', 'integer', 'min:1', 'max:720'],
+            'can_reject' => ['nullable', 'boolean'],
+            'is_submission' => ['nullable', 'boolean'],
+        ]);
+
+        $isSubmission = $request->boolean('is_submission');
+        $approvingRoleId = $isSubmission ? null : ($validated['approving_role_id'] ?? null);
+
+        if (!$isSubmission && empty($approvingRoleId)) {
+            return back()->withErrors(['approving_role_id' => 'An approval stage requires an Approving Role.'])->withInput();
+        }
+
+        $conditionValue = $validated['condition_value'] ?? null;
+        if ($validated['condition_type'] === WorkflowStage::CONDITION_AMOUNT_ABOVE && $conditionValue !== null) {
+            $minor = Money::fromMajor($conditionValue);
+            $conditionValue = $minor !== null ? (string) $minor : $conditionValue;
+        }
+
+        $before = $stage->only([
+            'position', 'name', 'approving_role_id', 'required_permission',
+            'condition_type', 'condition_value', 'sla_hours', 'can_reject', 'is_submission',
+        ]);
+
+        $stage->fill([
+            'position' => $validated['position'],
+            'name' => $validated['name'],
+            'approving_role_id' => $approvingRoleId,
+            'required_permission' => $validated['required_permission'] ?: null,
+            'condition_type' => $validated['condition_type'],
+            'condition_value' => $conditionValue,
+            'sla_hours' => $validated['sla_hours'] ?? null,
+            'can_reject' => $isSubmission ? false : $request->boolean('can_reject', true),
+            'is_submission' => $isSubmission,
+        ])->save();
+
+        $this->audit->edited(
+            $stage,
+            sprintf('Updated stage "%s" (Position %d) in workflow %s', $stage->name, $stage->position, $workflow->code),
+            'Settings',
+            $before,
+            $stage->only(array_keys($before)),
+            $this->currentUser()
+        );
+
+        return redirect()->route('admin.settings.workflows', ['workflow' => $workflow->id])
+            ->with('success', sprintf('Stage "%s" updated.', $stage->name));
+    }
+
+    public function destroyWorkflowStage(Request $request, Workflow $workflow, WorkflowStage $stage): RedirectResponse
+    {
+        $openCount = WorkflowInstance::query()->open()->where('current_stage_id', $stage->id)->count();
+
+        if ($openCount > 0) {
+            return redirect()->route('admin.settings.workflows', ['workflow' => $workflow->id])
+                ->withErrors(['stage' => sprintf('Cannot delete stage "%s" because %d items are currently in flight at this stage.', $stage->name, $openCount)]);
+        }
+
+        $stageName = $stage->name;
+        $stage->delete();
+
+        $this->audit->deleted(
+            $stage,
+            sprintf('Deleted stage "%s" from workflow %s', $stageName, $workflow->code),
+            'Settings',
+            ['workflow' => $workflow->code],
+            $this->currentUser()
+        );
+
+        return redirect()->route('admin.settings.workflows', ['workflow' => $workflow->id])
+            ->with('success', sprintf('Stage "%s" deleted.', $stageName));
+    }
+
+    public function storeWorkflowBand(Request $request, Workflow $workflow): RedirectResponse
+    {
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'amount_from' => ['required', 'string'],
+            'amount_to' => ['nullable', 'string'],
+            'stage_ids' => ['nullable', 'array'],
+            'stage_ids.*' => ['exists:workflow_stages,id'],
+        ]);
+
+        $fromMinor = Money::fromMajor($validated['amount_from']) ?? 0;
+        $toMinor = !empty($validated['amount_to']) ? Money::fromMajor($validated['amount_to']) : null;
+
+        $band = $workflow->bands()->create([
+            'name' => $validated['name'],
+            'amount_from_minor' => $fromMinor,
+            'amount_to_minor' => $toMinor,
+        ]);
+
+        if (!empty($validated['stage_ids'])) {
+            $band->stages()->sync($validated['stage_ids']);
+        }
+
+        $this->audit->created(
+            $band,
+            sprintf('Added amount band "%s" to workflow %s', $band->name, $workflow->code),
+            'Settings',
+            ['from_minor' => $fromMinor, 'to_minor' => $toMinor],
+            $this->currentUser()
+        );
+
+        return redirect()->route('admin.settings.workflows', ['workflow' => $workflow->id])
+            ->with('success', sprintf('Amount band "%s" added.', $band->name));
+    }
+
+    public function updateWorkflowBand(Request $request, Workflow $workflow, WorkflowBand $band): RedirectResponse
+    {
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'amount_from' => ['required', 'string'],
+            'amount_to' => ['nullable', 'string'],
+            'stage_ids' => ['nullable', 'array'],
+            'stage_ids.*' => ['exists:workflow_stages,id'],
+        ]);
+
+        $fromMinor = Money::fromMajor($validated['amount_from']) ?? 0;
+        $toMinor = !empty($validated['amount_to']) ? Money::fromMajor($validated['amount_to']) : null;
+
+        $band->fill([
+            'name' => $validated['name'],
+            'amount_from_minor' => $fromMinor,
+            'amount_to_minor' => $toMinor,
+        ])->save();
+
+        if (isset($validated['stage_ids'])) {
+            $band->stages()->sync($validated['stage_ids']);
+        }
+
+        $this->audit->edited(
+            $band,
+            sprintf('Updated amount band "%s" in workflow %s', $band->name, $workflow->code),
+            'Settings',
+            [],
+            ['from_minor' => $fromMinor, 'to_minor' => $toMinor],
+            $this->currentUser()
+        );
+
+        return redirect()->route('admin.settings.workflows', ['workflow' => $workflow->id])
+            ->with('success', sprintf('Amount band "%s" updated.', $band->name));
+    }
+
+    public function destroyWorkflowBand(Request $request, Workflow $workflow, WorkflowBand $band): RedirectResponse
+    {
+        $bandName = $band->name;
+        $band->stages()->detach();
+        $band->delete();
+
+        $this->audit->deleted(
+            $band,
+            sprintf('Deleted amount band "%s" from workflow %s', $bandName, $workflow->code),
+            'Settings',
+            ['workflow' => $workflow->code],
+            $this->currentUser()
+        );
+
+        return redirect()->route('admin.settings.workflows', ['workflow' => $workflow->id])
+            ->with('success', sprintf('Amount band "%s" deleted.', $bandName));
     }
 }

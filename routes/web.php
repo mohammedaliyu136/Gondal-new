@@ -639,7 +639,14 @@ Route::middleware(['auth', 'session.authenticate', 'account.usable', 'session.to
             Route::put('/settings/reference/{register}/{id}', [ReferenceDataController::class, 'update'])->name('reference.update');
 
             Route::get('/settings/workflows', [SettingsController::class, 'workflows'])->name('settings.workflows');
+            Route::post('/settings/workflows', [SettingsController::class, 'storeWorkflow'])->name('settings.workflows.store');
             Route::put('/settings/workflows/{workflow}', [SettingsController::class, 'updateWorkflow'])->name('settings.workflows.update');
+            Route::post('/settings/workflows/{workflow}/stages', [SettingsController::class, 'storeWorkflowStage'])->name('settings.workflows.stages.store');
+            Route::put('/settings/workflows/{workflow}/stages/{stage}', [SettingsController::class, 'updateWorkflowStage'])->name('settings.workflows.stages.update');
+            Route::delete('/settings/workflows/{workflow}/stages/{stage}', [SettingsController::class, 'destroyWorkflowStage'])->name('settings.workflows.stages.destroy');
+            Route::post('/settings/workflows/{workflow}/bands', [SettingsController::class, 'storeWorkflowBand'])->name('settings.workflows.bands.store');
+            Route::put('/settings/workflows/{workflow}/bands/{band}', [SettingsController::class, 'updateWorkflowBand'])->name('settings.workflows.bands.update');
+            Route::delete('/settings/workflows/{workflow}/bands/{band}', [SettingsController::class, 'destroyWorkflowBand'])->name('settings.workflows.bands.destroy');
         });
     });
 });
