@@ -56,68 +56,25 @@ class PayrollService
             ]);
 
             // BR-35 — an employee whose account is flagged is_test is excluded.
-            // Employee::excludingTestData() is the one definition of that
-            // population; the register's "Monthly gross" tile reads the same one.
             $employees = Employee::query()
                 ->onPayroll()
                 ->excludingTestData()
+                ->with(['salaryProfile', 'activeLoans.compensationType'])
                 ->get();
 
-            $gross = 0;
-            $deductions = 0;
-            $net = 0;
-
             foreach ($employees as $employee) {
-                $employeeGross = (int) $employee->gross_monthly_minor;
-
-                // A real deduction schedule is a Phase 8 detail the PRD does not
-                // specify beyond the payslip's breakdown JSON. What matters for
-                // the contract is that the arithmetic is integer (NFR-5) and that
-                // the breakdown is recorded rather than recomputed on read.
-                $breakdown = $this->breakdownFor($employeeGross);
-                $employeeDeductions = array_sum(array_column($breakdown['deductions'], 'amount_minor'));
-                $employeeNet = $employeeGross - $employeeDeductions;
-
-                Payslip::query()->create([
-                    'payroll_run_id' => $run->getKey(),
-                    'employee_id' => $employee->getKey(),
-                    'reference' => Sequences::next('payslips'),
-                    'gross_minor' => $employeeGross,
-                    'deductions_minor' => $employeeDeductions,
-                    'net_minor' => $employeeNet,
-                    'breakdown' => $breakdown,
-                    'ytd' => [
-                        /*
-                         * The month this payslip is FOR has to be added by hand.
-                         * The array is built before the insert, so the row the
-                         * sum should include does not exist yet — every payslip
-                         * understated year-to-date gross by exactly that month,
-                         * and January's read zero. It is printed straight to the
-                         * employee, who can add their own payslips up.
-                         */
-                        'gross_minor' => $this->yearToDateGrossBefore($employee, $run) + $employeeGross,
-                    ],
-                ]);
-
-                $gross += $employeeGross;
-                $deductions += $employeeDeductions;
-                $net += $employeeNet;
+                $this->calculateAndPersistPayslip($run, $employee, $actor);
             }
 
-            $run->forceFill([
-                'gross_total_minor' => $gross,
-                'deductions_total_minor' => $deductions,
-                'net_total_minor' => $net,
-                'employee_count' => $employees->count(),
-            ])->save();
+            $this->reconcileRunTotals($run);
 
             $this->audit->created(
                 $run,
                 sprintf(
                     'Payroll run generated for %s — %d employees, %s net',
                     $run->periodLabel(),
-                    $employees->count(),
-                    Money::format($net),
+                    $run->employee_count,
+                    Money::format((int) $run->net_total_minor),
                 ),
                 'Human Resources',
                 ['rule' => 'BR-35', 'test_accounts_excluded' => true],
@@ -126,6 +83,395 @@ class PayrollService
 
             return $run;
         });
+    }
+
+    /**
+     * Compute and persist payslip for an individual employee within a draft run.
+     */
+    public function calculateAndPersistPayslip(
+        PayrollRun $run,
+        Employee $employee,
+        User $actor,
+        ?Payslip $existing = null,
+    ): Payslip {
+        // 1. If existing payslip, detach any previously linked items
+        if ($existing) {
+            \App\Models\EmployeeCommission::query()->where('payslip_id', $existing->id)->update(['payslip_id' => null]);
+            \App\Models\EmployeeOvertime::query()->where('payslip_id', $existing->id)->update(['payslip_id' => null]);
+            \App\Models\StaffLoanRepayment::query()->where('payslip_id', $existing->id)->where('status', 'pending')->delete();
+        }
+
+        $earnings = [];
+        $deductionItems = [];
+
+        $profile = $employee->salaryProfile;
+        if ($profile) {
+            if ($profile->basic_salary_minor > 0) {
+                $earnings[] = ['label' => 'Basic Salary', 'amount_minor' => (int) $profile->basic_salary_minor];
+            }
+            if ($profile->housing_allowance_minor > 0) {
+                $earnings[] = ['label' => 'Housing Allowance', 'amount_minor' => (int) $profile->housing_allowance_minor];
+            }
+            if ($profile->transport_allowance_minor > 0) {
+                $earnings[] = ['label' => 'Transport Allowance', 'amount_minor' => (int) $profile->transport_allowance_minor];
+            }
+            if ($profile->utility_allowance_minor > 0) {
+                $earnings[] = ['label' => 'Utility & Meal Allowance', 'amount_minor' => (int) $profile->utility_allowance_minor];
+            }
+            if ($profile->medical_allowance_minor > 0) {
+                $earnings[] = ['label' => 'Medical Allowance', 'amount_minor' => (int) $profile->medical_allowance_minor];
+            }
+            if ($profile->other_allowance_minor > 0) {
+                $earnings[] = ['label' => 'Other Fixed Allowance', 'amount_minor' => (int) $profile->other_allowance_minor];
+            }
+            if ($profile->bonus_minor > 0) {
+                $earnings[] = ['label' => 'Regular Bonus', 'amount_minor' => (int) $profile->bonus_minor];
+            }
+
+            $pensionRate = $profile->pension_rate_pct ?: 8.0;
+            $isPensionExempt = $profile->is_pension_exempt;
+            $taxRate = $profile->tax_rate_pct ?: 7.0;
+            $isTaxExempt = $profile->is_tax_exempt;
+            $nhisMinor = (int) $profile->nhis_minor;
+            $unionMinor = (int) $profile->union_dues_minor;
+            $otherDeductionMinor = (int) $profile->other_deduction_minor;
+        } else {
+            $employeeGross = (int) $employee->gross_monthly_minor;
+            $earnings[] = ['label' => 'Basic Salary', 'amount_minor' => (int) round($employeeGross * 0.50)];
+            $earnings[] = ['label' => 'Housing Allowance', 'amount_minor' => (int) round($employeeGross * 0.30)];
+            $earnings[] = ['label' => 'Transport Allowance', 'amount_minor' => (int) round($employeeGross * 0.20)];
+
+            $pensionRate = 8.0;
+            $isPensionExempt = false;
+            $taxRate = 7.0;
+            $isTaxExempt = false;
+            $nhisMinor = 0;
+            $unionMinor = 0;
+            $otherDeductionMinor = 0;
+        }
+
+        // 2. Fetch and attach dynamic Commissions for this period
+        $commissions = \App\Models\EmployeeCommission::query()
+            ->where('employee_id', $employee->id)
+            ->where('period_year', $run->period_year)
+            ->where('period_month', $run->period_month)
+            ->whereIn('status', ['approved', 'pending'])
+            ->where(function ($q) use ($existing) {
+                $q->whereNull('payslip_id');
+                if ($existing) {
+                    $q->orWhere('payslip_id', $existing->id);
+                }
+            })
+            ->get();
+
+        foreach ($commissions as $comm) {
+            $earnings[] = [
+                'label' => sprintf('Commission: %s (%s)', $comm->description, $comm->reference),
+                'amount_minor' => (int) $comm->amount_minor,
+            ];
+        }
+
+        // 3. Fetch and attach dynamic Overtime records for this period
+        $overtimes = \App\Models\EmployeeOvertime::query()
+            ->where('employee_id', $employee->id)
+            ->where('period_year', $run->period_year)
+            ->where('period_month', $run->period_month)
+            ->whereIn('status', ['approved', 'pending'])
+            ->where(function ($q) use ($existing) {
+                $q->whereNull('payslip_id');
+                if ($existing) {
+                    $q->orWhere('payslip_id', $existing->id);
+                }
+            })
+            ->get();
+
+        foreach ($overtimes as $ot) {
+            $earnings[] = [
+                'label' => sprintf('Overtime: %s (%.1f hrs @ %s/hr)', $ot->description, $ot->hours, Money::format((int) $ot->hourly_rate_minor)),
+                'amount_minor' => (int) $ot->total_amount_minor,
+            ];
+        }
+
+        // Compute total gross
+        $employeeGross = (int) array_sum(array_column($earnings, 'amount_minor'));
+
+        // 4. Calculate Statutory Deductions
+        $pension = $isPensionExempt ? 0 : (int) round(($employeeGross * $pensionRate) / 100);
+        if ($pension > 0) {
+            $deductionItems[] = ['label' => sprintf('Pension Contribution (%.1f%%)', $pensionRate), 'amount_minor' => $pension];
+        }
+
+        $taxable = max(0, $employeeGross - $pension);
+        $tax = $isTaxExempt ? 0 : (int) round(($taxable * $taxRate) / 100);
+        if ($tax > 0) {
+            $deductionItems[] = ['label' => sprintf('PAYE Income Tax (%.1f%%)', $taxRate), 'amount_minor' => $tax];
+        }
+
+        if ($nhisMinor > 0) {
+            $deductionItems[] = ['label' => 'Health Insurance (NHIS)', 'amount_minor' => $nhisMinor];
+        }
+        if ($unionMinor > 0) {
+            $deductionItems[] = ['label' => 'Union / Cooperative Dues', 'amount_minor' => $unionMinor];
+        }
+        if ($otherDeductionMinor > 0) {
+            $deductionItems[] = ['label' => 'Other Voluntary Deductions', 'amount_minor' => $otherDeductionMinor];
+        }
+
+        // 5. Dynamic Staff Loan Deductions
+        $loanRepaymentPlans = [];
+        $activeLoans = $employee->staffLoans()->where('status', 'active')->where('balance_minor', '>', 0)->get();
+        foreach ($activeLoans as $loan) {
+            $installment = min((int) $loan->monthly_installment_minor, (int) $loan->balance_minor);
+            if ($installment > 0) {
+                $loanLabel = $loan->compensationType ? $loan->compensationType->name : 'Staff Loan';
+                $deductionItems[] = [
+                    'label' => sprintf('%s Repayment (%s)', $loanLabel, $loan->reference),
+                    'amount_minor' => $installment,
+                ];
+                $loanRepaymentPlans[] = [
+                    'loan' => $loan,
+                    'amount_minor' => $installment,
+                ];
+            }
+        }
+
+        $employeeDeductions = (int) array_sum(array_column($deductionItems, 'amount_minor'));
+        $employeeNet = max(0, $employeeGross - $employeeDeductions);
+
+        $breakdown = [
+            'earnings' => $earnings,
+            'deductions' => $deductionItems,
+        ];
+
+        if ($existing) {
+            $existing->update([
+                'gross_minor' => $employeeGross,
+                'deductions_minor' => $employeeDeductions,
+                'net_minor' => $employeeNet,
+                'breakdown' => $breakdown,
+                'ytd' => [
+                    'gross_minor' => $this->yearToDateGrossBefore($employee, $run) + $employeeGross,
+                ],
+            ]);
+            $payslip = $existing;
+        } else {
+            $payslip = Payslip::query()->create([
+                'payroll_run_id' => $run->getKey(),
+                'employee_id' => $employee->getKey(),
+                'reference' => Sequences::next('payslips'),
+                'gross_minor' => $employeeGross,
+                'deductions_minor' => $employeeDeductions,
+                'net_minor' => $employeeNet,
+                'breakdown' => $breakdown,
+                'ytd' => [
+                    'gross_minor' => $this->yearToDateGrossBefore($employee, $run) + $employeeGross,
+                ],
+            ]);
+        }
+
+        // Link processed commissions and overtime to this payslip
+        foreach ($commissions as $comm) {
+            $comm->update(['payslip_id' => $payslip->id]);
+        }
+        foreach ($overtimes as $ot) {
+            $ot->update(['payslip_id' => $payslip->id]);
+        }
+
+        // Queue pending loan repayment records
+        foreach ($loanRepaymentPlans as $plan) {
+            \App\Models\StaffLoanRepayment::query()->create([
+                'staff_loan_id' => $plan['loan']->id,
+                'payslip_id' => $payslip->id,
+                'payroll_run_id' => $run->id,
+                'amount_minor' => $plan['amount_minor'],
+                'repaid_on' => Wat::today(),
+                'status' => 'pending',
+                'recorded_by_user_id' => $actor->id,
+            ]);
+        }
+
+        return $payslip;
+    }
+
+    /**
+     * Recalculate a single draft payslip against latest salary profile and queued variable pay.
+     */
+    public function recalculatePayslip(Payslip $payslip, User $actor): Payslip
+    {
+        $run = $payslip->payrollRun;
+        if ($run->status !== PayrollRun::STATUS_DRAFT) {
+            throw RuleViolationException::make('ST-1', 'Only payslips in draft payroll runs can be recalculated.');
+        }
+
+        return DB::transaction(function () use ($run, $payslip, $actor): Payslip {
+            $employee = $payslip->employee()->with(['salaryProfile', 'activeLoans.compensationType'])->firstOrFail();
+            $updated = $this->calculateAndPersistPayslip($run, $employee, $actor, $payslip);
+            $this->reconcileRunTotals($run);
+
+            $this->audit->edited(
+                $payslip,
+                sprintf('Recalculated draft payslip %s for %s (%s net)', $payslip->reference, $employee->name, Money::format((int) $updated->net_minor)),
+                'Human Resources',
+                [],
+                ['gross_minor' => $updated->gross_minor, 'net_minor' => $updated->net_minor],
+                $actor,
+            );
+
+            return $updated;
+        });
+    }
+
+    /**
+     * Remove / exclude an employee's payslip from a draft payroll run.
+     */
+    public function removePayslip(Payslip $payslip, User $actor): void
+    {
+        $run = $payslip->payrollRun;
+        if ($run->status !== PayrollRun::STATUS_DRAFT) {
+            throw RuleViolationException::make('ST-1', 'Only payslips in draft payroll runs can be removed.');
+        }
+
+        DB::transaction(function () use ($run, $payslip, $actor): void {
+            $employeeName = $payslip->employee?->name ?? 'Employee';
+            $ref = $payslip->reference;
+
+            // Release commissions and overtimes back to unbilled queue
+            \App\Models\EmployeeCommission::query()->where('payslip_id', $payslip->id)->update(['payslip_id' => null]);
+            \App\Models\EmployeeOvertime::query()->where('payslip_id', $payslip->id)->update(['payslip_id' => null]);
+            \App\Models\StaffLoanRepayment::query()->where('payslip_id', $payslip->id)->delete();
+
+            $payslip->delete();
+
+            $this->reconcileRunTotals($run);
+
+            $this->audit->deleted(
+                $payslip,
+                sprintf('Removed %s (payslip %s) from draft payroll run %s', $employeeName, $ref, $run->periodLabel()),
+                'Human Resources',
+                ['run_id' => $run->id, 'period' => $run->periodLabel()],
+                $actor,
+            );
+        });
+    }
+
+    /**
+     * Add a missing employee to a draft payroll run.
+     */
+    public function addEmployeeToRun(PayrollRun $run, Employee $employee, User $actor): Payslip
+    {
+        if ($run->status !== PayrollRun::STATUS_DRAFT) {
+            throw RuleViolationException::make('ST-1', 'Employees can only be added to draft payroll runs.');
+        }
+
+        if ($run->payslips()->where('employee_id', $employee->id)->exists()) {
+            throw RuleViolationException::make('ST-2', sprintf('%s is already on this payroll run.', $employee->name));
+        }
+
+        return DB::transaction(function () use ($run, $employee, $actor): Payslip {
+            $employee->loadMissing(['salaryProfile', 'activeLoans.compensationType']);
+            $payslip = $this->calculateAndPersistPayslip($run, $employee, $actor);
+            $this->reconcileRunTotals($run);
+
+            $this->audit->created(
+                $payslip,
+                sprintf('Added %s to draft payroll run %s (payslip %s, %s net)', $employee->name, $run->periodLabel(), $payslip->reference, Money::format((int) $payslip->net_minor)),
+                'Human Resources',
+                ['run_id' => $run->id],
+                $actor,
+            );
+
+            return $payslip;
+        });
+    }
+
+    /**
+     * Sync all draft payslips against active master employee records and salary structures.
+     */
+    public function syncDraftRun(PayrollRun $run, User $actor): PayrollRun
+    {
+        if ($run->status !== PayrollRun::STATUS_DRAFT) {
+            throw RuleViolationException::make('ST-1', 'Only draft payroll runs can be synchronized.');
+        }
+
+        return DB::transaction(function () use ($run, $actor): PayrollRun {
+            $employees = Employee::query()
+                ->onPayroll()
+                ->excludingTestData()
+                ->with(['salaryProfile', 'activeLoans.compensationType'])
+                ->get();
+
+            $activeEmployeeIds = $employees->pluck('id')->all();
+
+            // 1. Remove payslips of employees no longer eligible / on payroll
+            $orphanedPayslips = $run->payslips()->whereNotIn('employee_id', $activeEmployeeIds)->get();
+            foreach ($orphanedPayslips as $orphaned) {
+                $this->removePayslip($orphaned, $actor);
+            }
+
+            // 2. Recalculate or create payslips for all eligible employees
+            foreach ($employees as $employee) {
+                $existing = $run->payslips()->where('employee_id', $employee->id)->first();
+                $this->calculateAndPersistPayslip($run, $employee, $actor, $existing);
+            }
+
+            $this->reconcileRunTotals($run);
+
+            $this->audit->edited(
+                $run,
+                sprintf('Synchronized draft payroll run for %s — %d employees, %s net', $run->periodLabel(), $run->employee_count, Money::format((int) $run->net_total_minor)),
+                'Human Resources',
+                [],
+                ['employee_count' => $run->employee_count, 'net_total_minor' => $run->net_total_minor],
+                $actor,
+            );
+
+            return $run->refresh();
+        });
+    }
+
+    /**
+     * Discard / delete an entire draft payroll run and release all attached records.
+     */
+    public function discardDraft(PayrollRun $run, User $actor): void
+    {
+        if ($run->status !== PayrollRun::STATUS_DRAFT) {
+            throw RuleViolationException::make('ST-1', 'Only draft payroll runs can be discarded.');
+        }
+
+        DB::transaction(function () use ($run, $actor): void {
+            $label = $run->periodLabel();
+
+            foreach ($run->payslips as $payslip) {
+                \App\Models\EmployeeCommission::query()->where('payslip_id', $payslip->id)->update(['payslip_id' => null]);
+                \App\Models\EmployeeOvertime::query()->where('payslip_id', $payslip->id)->update(['payslip_id' => null]);
+                \App\Models\StaffLoanRepayment::query()->where('payslip_id', $payslip->id)->delete();
+                $payslip->delete();
+            }
+
+            $run->delete();
+
+            $this->audit->deleted(
+                $run,
+                sprintf('Discarded draft payroll run for %s', $label),
+                'Human Resources',
+                ['period' => $label],
+                $actor,
+            );
+        });
+    }
+
+    /**
+     * Reconcile employee count, gross, deductions, and net totals on a payroll run.
+     */
+    public function reconcileRunTotals(PayrollRun $run): void
+    {
+        $payslips = $run->payslips()->get();
+        $run->forceFill([
+            'employee_count' => $payslips->count(),
+            'gross_total_minor' => (int) $payslips->sum('gross_minor'),
+            'deductions_total_minor' => (int) $payslips->sum('deductions_minor'),
+            'net_total_minor' => (int) $payslips->sum('net_minor'),
+        ])->save();
     }
 
     public function submitForApproval(PayrollRun $run, User $actor): PayrollRun
@@ -195,21 +541,55 @@ class PayrollService
         // ARCH-9 — an instant, stored UTC.
         $paidAt = Wat::now();
 
-        $run->forceFill([
-            'status' => PayrollRun::STATUS_PAID,
-            'paid_at' => $paidAt,
-        ])->save();
+        return DB::transaction(function () use ($run, $actor, $paidAt): PayrollRun {
+            $run->forceFill([
+                'status' => PayrollRun::STATUS_PAID,
+                'paid_at' => $paidAt,
+            ])->save();
 
-        $this->audit->edited(
-            $run,
-            sprintf('%s marked paid — %s to %d employees', $run->periodLabel(), Money::format((int) $run->net_total_minor), (int) $run->employee_count),
-            'Human Resources',
-            ['status' => PayrollRun::STATUS_APPROVED, 'paid_at' => null],
-            ['status' => PayrollRun::STATUS_PAID, 'paid_at' => $paidAt->toIso8601String()],
-            $actor,
-        );
+            $payslipIds = $run->payslips()->pluck('id')->all();
 
-        return $run->refresh();
+            // 1. Confirm staff loan repayments and update loan debt balances
+            $pendingRepayments = \App\Models\StaffLoanRepayment::query()
+                ->where('payroll_run_id', $run->id)
+                ->where('status', 'pending')
+                ->with('loan')
+                ->get();
+
+            foreach ($pendingRepayments as $repayment) {
+                $repayment->update(['status' => 'confirmed']);
+                $loan = $repayment->loan;
+                if ($loan) {
+                    $loan->total_repaid_minor += (int) $repayment->amount_minor;
+                    $loan->balance_minor = max(0, (int) $loan->principal_amount_minor - (int) $loan->total_repaid_minor);
+                    if ($loan->balance_minor <= 0) {
+                        $loan->status = \App\Models\StaffLoan::STATUS_COMPLETED;
+                    }
+                    $loan->save();
+                }
+            }
+
+            // 2. Mark dynamic commissions as processed in payroll
+            \App\Models\EmployeeCommission::query()
+                ->whereIn('payslip_id', $payslipIds)
+                ->update(['status' => \App\Models\EmployeeCommission::STATUS_PROCESSED]);
+
+            // 3. Mark dynamic overtime as processed in payroll
+            \App\Models\EmployeeOvertime::query()
+                ->whereIn('payslip_id', $payslipIds)
+                ->update(['status' => \App\Models\EmployeeOvertime::STATUS_PROCESSED]);
+
+            $this->audit->edited(
+                $run,
+                sprintf('%s marked paid — %s to %d employees', $run->periodLabel(), Money::format((int) $run->net_total_minor), (int) $run->employee_count),
+                'Human Resources',
+                ['status' => PayrollRun::STATUS_APPROVED, 'paid_at' => null],
+                ['status' => PayrollRun::STATUS_PAID, 'paid_at' => $paidAt->toIso8601String()],
+                $actor,
+            );
+
+            return $run->refresh();
+        });
     }
 
     /**

@@ -174,11 +174,29 @@
                 <div class="field"><label for="emp-gross">Gross monthly (&#8358;)</label>
                   <input type="text" id="emp-gross" name="gross_monthly" inputmode="decimal" value="{{ old('gross_monthly') }}" />
                   <div class="hint">What the payroll run will use. Leave blank if they are not on payroll.</div></div>
-                <div class="field"><label for="emp-bank">Bank</label>
-                  <input type="text" id="emp-bank" name="bank_name" value="{{ old('bank_name') }}" /></div>
-                <div class="field"><label for="emp-account">Account number</label>
-                  <input type="text" id="emp-account" name="bank_account" inputmode="numeric" value="{{ old('bank_account') }}" />
-                  <div class="hint">Only the last four digits are kept.</div></div>
+                <div class="field">
+                  <label for="emp-bank-code">Bank <span class="req">*</span></label>
+                  <select id="emp-bank-code" name="bank_code" class="bank-select" data-searchable data-combo-placeholder="Search banks…">
+                    <option value="">&mdash;</option>
+                    @foreach ($banks as $bank)
+                      <option value="{{ $bank['code'] }}" data-name="{{ $bank['name'] }}" @selected(old('bank_code') == $bank['code'])>{{ $bank['name'] }}</option>
+                    @endforeach
+                  </select>
+                  <input type="hidden" id="emp-bank-name" name="bank_name" value="{{ old('bank_name') }}" />
+                </div>
+                <div class="field">
+                  <label for="emp-account">NUBAN Account Number <span class="req">*</span></label>
+                  <div style="position:relative">
+                    <input type="text" id="emp-account" name="bank_account" class="bank-account-input" inputmode="numeric" maxlength="10" value="{{ old('bank_account') }}" placeholder="10-digit NUBAN number" />
+                    <span class="bank-verify-spinner" style="position:absolute;right:10px;top:8px;display:none;font-size:13px;color:var(--primary)">&#9203; Verifying...</span>
+                  </div>
+                  <div class="bank-verify-msg hint" style="margin-top:4px"></div>
+                </div>
+                <div class="field">
+                  <label for="emp-account-name">Account Holder Name <span class="req">*</span></label>
+                  <input type="text" id="emp-account-name" name="bank_account_name" class="bank-account-name-input" value="{{ old('bank_account_name') }}" readonly required placeholder="Auto-retrieved on account number blur" style="background:var(--card, #f8fafc);cursor:not-allowed;font-weight:600;color:var(--text-bright, #0f172a)" />
+                  <div class="hint">Automatically verified via default payment gateway.</div>
+                </div>
               @endif
 
               <div class="field"><label for="emp-kin">Next of kin</label>
@@ -189,10 +207,101 @@
           </div>
           <div class="modal-foot">
             <a href="#" class="btn btn-ghost">Cancel</a>
-            <button type="submit" class="btn btn-primary">Add employee</button>
+            <button type="submit" class="btn btn-primary" id="btn-submit-employee">Add employee</button>
           </div>
         </form>
       </div>
     </div>
+
+    <script>
+      document.addEventListener('DOMContentLoaded', function () {
+        const bankSelect = document.getElementById('emp-bank-code');
+        const bankNameInput = document.getElementById('emp-bank-name');
+        const accountInput = document.getElementById('emp-account');
+        const nameInput = document.getElementById('emp-account-name');
+        const spinner = document.querySelector('#modal-employee .bank-verify-spinner');
+        const msg = document.querySelector('#modal-employee .bank-verify-msg');
+        const submitBtn = document.getElementById('btn-submit-employee');
+        const csrf = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+
+        if (!bankSelect || !accountInput || !nameInput) return;
+
+        function updateBankName() {
+          const selected = bankSelect.options[bankSelect.selectedIndex];
+          if (selected && selected.dataset.name) {
+            bankNameInput.value = selected.dataset.name;
+          }
+        }
+
+        bankSelect.addEventListener('change', function () {
+          updateBankName();
+          if (accountInput.value.trim().length === 10) {
+            verifyAccount();
+          }
+        });
+
+        accountInput.addEventListener('blur', function () {
+          verifyAccount();
+        });
+
+        accountInput.addEventListener('input', function () {
+          this.value = this.value.replace(/\D/g, '').slice(0, 10);
+          if (this.value.length === 10) {
+            verifyAccount();
+          } else {
+            nameInput.value = '';
+            msg.innerHTML = '<span class="text-muted">Enter a 10-digit account number</span>';
+          }
+        });
+
+        async function verifyAccount() {
+          const bankCode = bankSelect.value.trim();
+          const accountNo = accountInput.value.trim();
+
+          if (!bankCode) {
+            msg.innerHTML = '<span style="color:var(--danger, #dc2626)">Please select a bank first.</span>';
+            return;
+          }
+
+          if (accountNo.length !== 10) {
+            msg.innerHTML = '<span style="color:var(--danger, #dc2626)">NUBAN account number must be 10 digits.</span>';
+            return;
+          }
+
+          updateBankName();
+          spinner.style.display = 'inline';
+          msg.innerHTML = '<span style="color:var(--primary, #0284c7)">Verifying account details with gateway...</span>';
+
+          try {
+            const res = await fetch('{{ route('employees.verify-bank') }}', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'X-CSRF-TOKEN': csrf,
+              },
+              body: JSON.stringify({ bank_code: bankCode, account_number: accountNo }),
+            });
+
+            const data = await res.json();
+
+            if (res.ok && data.success && data.account_name) {
+              nameInput.value = data.account_name;
+              if (data.bank_name && !bankNameInput.value) {
+                bankNameInput.value = data.bank_name;
+              }
+              msg.innerHTML = '<span style="color:#15803d;font-weight:600">&#10003; Verified: ' + data.account_name + '</span>';
+            } else {
+              nameInput.value = '';
+              msg.innerHTML = '<span style="color:#dc2626;font-weight:600">&#9888; ' + (data.message || 'Verification failed. Check bank and account number.') + '</span>';
+            }
+          } catch (err) {
+            msg.innerHTML = '<span style="color:#dc2626">&#9888; Network error during verification.</span>';
+          } finally {
+            spinner.style.display = 'none';
+          }
+        }
+      });
+    </script>
   @endif
 @endsection

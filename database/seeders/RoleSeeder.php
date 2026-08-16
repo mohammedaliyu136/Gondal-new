@@ -493,6 +493,7 @@ class RoleSeeder extends Seeder
                     'shop.revenue' => ['view'],
                     'hr.employees' => ['view'],
                     'hr.payroll' => ['view'],
+                    'payments.disbursements' => ['view', 'authorize', 'reconcile'],
                     'admin.audit' => ['view'],
                     'admin.settings' => ['view'],
                 ],
@@ -532,6 +533,8 @@ class RoleSeeder extends Seeder
                     'purchase.approve.accounts' => ['approve'],
                     'hr.payroll' => '*',
                     'hr.employees' => ['view'],
+                    'payments.disbursements' => ['view', 'create', 'initialize', 'reconcile'],
+                    'payments.gateways' => ['view'],
                     'logistics.payments' => '*',
                     'finance.cash' => '*',
                     /*
@@ -604,7 +607,10 @@ class RoleSeeder extends Seeder
                     'shop.sales' => ['view'],
                     'shop.revenue' => ['view'],
                     'hr.employees' => ['view'],
+                    'hr.setup' => ['view'],
                     'hr.payroll' => ['view', 'approve'],
+                    'payments.disbursements' => ['view', 'authorize', 'reconcile'],
+                    'payments.gateways' => ['view'],
                     'admin.audit' => ['view'],
                     'admin.settings' => ['view'],
                 ],
@@ -625,6 +631,7 @@ class RoleSeeder extends Seeder
                 // Restriction: no operational milk data.
                 'grants' => [
                     'hr.employees' => '*',
+                    'hr.setup' => '*',
                     'hr.leave' => '*',
                     'hr.payroll' => '*',
                     'purchase.requisitions' => ['view', 'create'],

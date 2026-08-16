@@ -3,9 +3,12 @@
 namespace App\Http\Controllers\Hr;
 
 use App\Http\Controllers\Controller;
+use App\Models\Employee;
+use App\Models\PaymentBatch;
 use App\Models\PayrollRun;
 use App\Models\Payslip;
 use App\Services\Hr\PayrollService;
+use App\Services\Payment\Modules\PayrollPaymentService;
 use App\Services\Payment\PaymentService;
 use App\Support\Money;
 use App\Support\Wat;
@@ -14,21 +17,12 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Illuminate\View\View;
 
-/**
- * payroll.html, payslip.html, and payment.html.
- *
- * G-6 — payroll is the sharpest sensitive boundary in the system. Only
- *   hr.payroll.view reaches the run; a member of staff reaches THEIR OWN payslip
- *   through hr.payslip.own.view, which is `own`-scoped (ROLE-3).
- * BR-35 — test accounts are excluded when the run is generated.
- * §15.1 — FARMER and TRANSPORT payments are NOT here. Phase 7 is blocked on an
- *   open decision; this is staff payroll only.
- */
 class PayrollController extends Controller
 {
     public function __construct(
         private readonly PayrollService $payroll,
         private readonly PaymentService $paymentService,
+        private readonly PayrollPaymentService $payrollPaymentService,
     ) {}
 
     public function index(Request $request): View
@@ -39,32 +33,62 @@ class PayrollController extends Controller
             ->orderByDesc('period_month')
             ->paginate($this->perPage($request->integer('per_page') ?: null));
 
-        $current = $runs->first();
+        $selectedRunId = $request->integer('run_id');
+        $current = $selectedRunId
+            ? PayrollRun::query()->with(['runBy', 'workflowInstance.currentStage.approvingRole'])->find($selectedRunId)
+            : $runs->first();
+
+        $canDisburse = $this->allows('payments.disbursements.initialize')
+            || $this->allows('payments.disbursements.authorize')
+            || $this->allows('hr.payroll.approve');
+
+        $payslipsQuery = null;
+        if ($current !== null) {
+            $payslipsQuery = $current->payslips()->with('employee.department')->orderBy('id');
+
+            if ($q = trim((string) $request->input('q', ''))) {
+                $payslipsQuery->where(function ($query) use ($q): void {
+                    $query->where('reference', 'like', "%{$q}%")
+                        ->orWhereHas('employee', function ($eq) use ($q): void {
+                            $eq->where('name', 'like', "%{$q}%")
+                                ->orWhere('code', 'like', "%{$q}%")
+                                ->orWhere('email', 'like', "%{$q}%");
+                        })
+                        ->orWhereHas('employee.department', function ($dq) use ($q): void {
+                            $dq->where('name', 'like', "%{$q}%")
+                                ->orWhere('code', 'like', "%{$q}%");
+                        });
+                });
+            }
+
+            if ($deptId = $request->input('department')) {
+                $payslipsQuery->whereHas('employee', function ($eq) use ($deptId): void {
+                    $eq->where('department_id', $deptId);
+                });
+            }
+        }
+
+        $payslips = $payslipsQuery === null
+            ? collect()
+            : $payslipsQuery->paginate($this->perPage($request->integer('per_page') ?: null), ['*'], 'payslip_page')
+                ->appends($request->except('payslip_page'));
+
+        $onRunEmployeeIds = $current ? $current->payslips()->pluck('employee_id')->all() : [];
+        $availableEmployees = ($current && $current->status === PayrollRun::STATUS_DRAFT)
+            ? Employee::query()->onPayroll()->excludingTestData()->whereNotIn('id', $onRunEmployeeIds)->orderBy('name')->get()
+            : collect();
 
         return view('hr.payroll.index', [
             'runs' => $runs,
             'current' => $current,
-            /*
-             * NFR-2 — paginated, not truncated. This was limit(50)->get() with no
-             * total and no paginator: at 51 employees the fifty-first payslip
-             * stopped appearing while the run's own gross and net kept
-             * reconciling, so the table disagreed with the tiles above it and
-             * looked correct doing so.
-             */
-            'payslips' => $current === null
-                ? collect()
-                : $current->payslips()->with('employee.department')->orderBy('id')
-                    ->paginate($this->perPage($request->integer('per_page') ?: null), ['*'], 'payslip_page'),
+            'payslips' => $payslips,
+            'departments' => \App\Models\Department::query()->active()->orderBy('name')->get(),
+            'availableEmployees' => $availableEmployees,
             'canRun' => $this->allows('hr.payroll.create'),
-            'canDisburse' => $this->allows('hr.payroll.approve'),
-            /*
-             * Route::has because the POST is registered separately from this
-             * screen; without the guard the whole page 500s while the two halves
-             * are out of step, which is a worse failure than a missing button.
-             */
-            'canMarkPaid' => $this->allows('hr.payroll.approve') && Route::has('payroll.paid'),
+            'canEditDraft' => $this->allows('hr.payroll.create') || $this->allows('hr.payroll.edit'),
+            'canDisburse' => $canDisburse,
+            'canMarkPaid' => $canDisburse && Route::has('payroll.paid'),
             'nextPeriod' => Wat::today()->startOfMonth(),
-            // §15.1 — surfaced on screen rather than silently missing.
             'paymentsModuleBlocked' => true,
         ]);
     }
@@ -89,6 +113,74 @@ class PayrollController extends Controller
         ));
     }
 
+    /**
+     * Synchronize all draft payslips against active salary profiles and records.
+     */
+    public function syncRun(PayrollRun $payrollRun): RedirectResponse
+    {
+        $this->authorizeAnyAccess(['hr.payroll.create', 'hr.payroll.edit'], null, 'Sync draft payroll run');
+
+        $this->payroll->syncDraftRun($payrollRun, $this->currentUser());
+
+        return back()->with('success', sprintf('Draft payroll for %s has been synchronized with the latest employee salary profiles.', $payrollRun->periodLabel()));
+    }
+
+    /**
+     * Add a missing employee to a draft payroll run.
+     */
+    public function addEmployee(Request $request, PayrollRun $payrollRun): RedirectResponse
+    {
+        $this->authorizeAnyAccess(['hr.payroll.create', 'hr.payroll.edit'], null, 'Add employee to draft payroll run');
+
+        $validated = $request->validate([
+            'employee_id' => ['required', 'exists:employees,id'],
+        ]);
+
+        $employee = Employee::query()->findOrFail($validated['employee_id']);
+        $payslip = $this->payroll->addEmployeeToRun($payrollRun, $employee, $this->currentUser());
+
+        return back()->with('success', sprintf('%s has been added to %s draft payroll (Ref: %s).', $employee->name, $payrollRun->periodLabel(), $payslip->reference));
+    }
+
+    /**
+     * Recalculate a single draft payslip against latest master structure.
+     */
+    public function recalculatePayslip(Payslip $payslip): RedirectResponse
+    {
+        $this->authorizeAnyAccess(['hr.payroll.create', 'hr.payroll.edit'], $payslip->employee, 'Recalculate draft payslip');
+
+        $this->payroll->recalculatePayslip($payslip, $this->currentUser());
+
+        return back()->with('success', sprintf('Payslip %s for %s has been recalculated.', $payslip->reference, $payslip->employee?->name));
+    }
+
+    /**
+     * Remove an employee from a draft payroll run.
+     */
+    public function destroyPayslip(Payslip $payslip): RedirectResponse
+    {
+        $this->authorizeAnyAccess(['hr.payroll.create', 'hr.payroll.edit'], $payslip->employee, 'Remove employee from draft payroll run');
+
+        $employeeName = $payslip->employee?->name ?? 'Employee';
+        $ref = $payslip->reference;
+        $this->payroll->removePayslip($payslip, $this->currentUser());
+
+        return back()->with('success', sprintf('%s (Payslip %s) removed from draft payroll run.', $employeeName, $ref));
+    }
+
+    /**
+     * Discard / delete an entire draft payroll run.
+     */
+    public function destroy(PayrollRun $payrollRun): RedirectResponse
+    {
+        $this->authorizeAnyAccess(['hr.payroll.create', 'hr.payroll.delete'], null, 'Discard draft payroll run');
+
+        $period = $payrollRun->periodLabel();
+        $this->payroll->discardDraft($payrollRun, $this->currentUser());
+
+        return redirect()->route('payroll.index')->with('success', sprintf('Draft payroll run for %s has been discarded.', $period));
+    }
+
     public function submit(PayrollRun $payrollRun): RedirectResponse
     {
         $this->authorizeAccess('hr.payroll.create', null, 'Submit payroll for approval');
@@ -99,14 +191,15 @@ class PayrollController extends Controller
     }
 
     /**
-     * §6.8's `paid` status and `paid_at` were unreachable — a run could never
-     * leave `approved`, so the register could not say which months had actually
-     * been paid. Gated on hr.payroll.approve: releasing the money is the approver's
-     * act, not the officer's who generated the run.
+     * Mark payroll paid / release funds.
      */
     public function markPaid(PayrollRun $payrollRun): RedirectResponse
     {
-        $this->authorizeAccess('hr.payroll.approve', null, 'Mark payroll paid');
+        $this->authorizeAnyAccess(
+            ['payments.disbursements.authorize', 'payments.disbursements.initialize', 'hr.payroll.approve'],
+            null,
+            'Mark payroll paid'
+        );
 
         $this->payroll->markPaid($payrollRun, $this->currentUser());
 
@@ -118,7 +211,11 @@ class PayrollController extends Controller
      */
     public function payment(PayrollRun $payrollRun, Request $request): View
     {
-        $this->authorizeAccess('hr.payroll.view', $payrollRun, 'Payroll Payment Details');
+        $this->authorizeAnyAccess(
+            ['hr.payroll.view', 'payments.disbursements.view'],
+            $payrollRun,
+            'Payroll Payment Details'
+        );
 
         $payrollRun->load(['runBy', 'workflowInstance.currentStage.approvingRole', 'workflowInstance.actions.actor']);
 
@@ -129,11 +226,24 @@ class PayrollController extends Controller
 
         $gateways = $this->paymentService->getGatewayStatuses();
 
+        $batches = PaymentBatch::query()
+            ->where('source_type', $payrollRun->getMorphClass())
+            ->where('source_id', $payrollRun->getKey())
+            ->with(['items', 'initiatedBy', 'authorizedBy'])
+            ->latest('id')
+            ->get();
+
+        $canInitialize = $this->allows('payments.disbursements.initialize') || $this->allows('hr.payroll.approve');
+        $canAuthorize = $this->allows('payments.disbursements.authorize') || $this->allows('hr.payroll.approve');
+
         return view('hr.payroll.payment', [
             'run' => $payrollRun,
             'payslips' => $payslips,
             'gateways' => $gateways,
-            'canDisburse' => $this->allows('hr.payroll.approve'),
+            'batches' => $batches,
+            'canInitialize' => $canInitialize,
+            'canAuthorize' => $canAuthorize,
+            'canDisburse' => $canInitialize || $canAuthorize,
         ]);
     }
 
@@ -142,21 +252,151 @@ class PayrollController extends Controller
      */
     public function disburse(Request $request, PayrollRun $payrollRun): RedirectResponse
     {
-        $this->authorizeAccess('hr.payroll.approve', $payrollRun, 'Disburse Payroll Payment');
+        $this->authorizeAnyAccess(
+            ['payments.disbursements.authorize', 'payments.disbursements.initialize', 'hr.payroll.approve'],
+            $payrollRun,
+            'Disburse Payroll Payment'
+        );
 
         $validated = $request->validate([
             'payment_method' => ['required', 'string', 'in:bank_transfer,paystack,monnify,zainpay,cash'],
             'reference_notes' => ['nullable', 'string', 'max:500'],
+            'otp' => ['nullable', 'string', 'max:16'],
         ]);
 
-        $this->payroll->markPaid($payrollRun, $this->currentUser());
+        try {
+            $batch = $this->payrollPaymentService->disburseRun(
+                $payrollRun,
+                $validated['payment_method'],
+                $this->currentUser(),
+                $validated['reference_notes'] ?? null,
+                $validated['otp'] ?? null
+            );
 
-        return redirect()->route('payroll.payment', $payrollRun)->with('success', sprintf(
-            'Payroll for %s (%s) has been successfully disbursed via %s.',
-            $payrollRun->periodLabel(),
-            Money::format((int) $payrollRun->net_total_minor),
-            ucfirst(str_replace('_', ' ', $validated['payment_method']))
-        ));
+            return redirect()->route('payroll.payment', $payrollRun)->with('success', sprintf(
+                'Payroll for %s (%s) has been successfully processed via batch %s (%s).',
+                $payrollRun->periodLabel(),
+                Money::format((int) $payrollRun->net_total_minor),
+                $batch->batch_reference,
+                ucfirst(str_replace('_', ' ', $validated['payment_method']))
+            ));
+        } catch (\Throwable $e) {
+            return redirect()->route('payroll.payment', $payrollRun)->with('error', $e->getMessage());
+        }
+    }
+
+    /**
+     * Detail view for a specific payroll payment batch and its reconciled items with payslips.
+     */
+    public function batch(PayrollRun $payrollRun, PaymentBatch $batch, Request $request): View
+    {
+        $this->authorizeAnyAccess(
+            ['hr.payroll.view', 'payments.disbursements.view'],
+            $payrollRun,
+            'Payroll Batch Details'
+        );
+
+        $batch->load(['initiatedBy', 'authorizedBy', 'source']);
+        $payrollRun->load(['payslips.employee.department']);
+
+        $items = $batch->items()
+            ->with(['recipient'])
+            ->orderBy('id')
+            ->paginate($this->perPage($request->integer('per_page') ?: 50));
+
+        $payslipsByEmployee = $payrollRun->payslips->keyBy('employee_id');
+
+        $canInitialize = $this->allows('payments.disbursements.initialize') || $this->allows('hr.payroll.approve');
+        $canAuthorize = $this->allows('payments.disbursements.authorize') || $this->allows('hr.payroll.approve');
+
+        return view('hr.payroll.batch', [
+            'run' => $payrollRun,
+            'batch' => $batch,
+            'items' => $items,
+            'payslipsByEmployee' => $payslipsByEmployee,
+            'canInitialize' => $canInitialize,
+            'canAuthorize' => $canAuthorize,
+        ]);
+    }
+
+    /**
+     * Authorize an existing pending payment batch using an OTP/2FA code.
+     */
+    public function validateBatchOtp(Request $request, PayrollRun $payrollRun, PaymentBatch $batch): RedirectResponse
+    {
+        $this->authorizeAnyAccess(
+            ['payments.disbursements.authorize', 'hr.payroll.approve'],
+            $payrollRun,
+            'Validate Batch OTP'
+        );
+
+        $validated = $request->validate([
+            'otp' => ['required', 'string', 'max:32'],
+        ]);
+
+        try {
+            $this->payrollPaymentService->authorizeBatchOtp($batch, $validated['otp'], $this->currentUser());
+
+            return redirect()->route('payroll.payment', $payrollRun)->with('success', sprintf(
+                'Payment batch %s has been successfully authorized and completed.',
+                $batch->batch_reference
+            ));
+        } catch (\Throwable $e) {
+            return redirect()->route('payroll.payment', $payrollRun)->with('error', $e->getMessage());
+        }
+    }
+
+    /**
+     * Re-query live payment gateway to sync batch settlement status.
+     */
+    public function syncBatchStatus(PayrollRun $payrollRun, PaymentBatch $batch): RedirectResponse
+    {
+        $this->authorizeAnyAccess(
+            ['payments.disbursements.authorize', 'hr.payroll.approve', 'payments.disbursements.initialize'],
+            $payrollRun,
+            'Sync Batch Status'
+        );
+
+        try {
+            $this->payrollPaymentService->syncBatchStatus($batch, $this->currentUser());
+
+            return redirect()->route('payroll.payment', $payrollRun)->with('success', sprintf(
+                'Payment batch %s status verified with %s (Current Status: %s).',
+                $batch->batch_reference,
+                ucfirst($batch->gateway),
+                ucfirst($batch->status)
+            ));
+        } catch (\Throwable $e) {
+            return redirect()->route('payroll.payment', $payrollRun)->with('error', $e->getMessage());
+        }
+    }
+
+    /**
+     * Revalidate and refresh settlement status for all batch items directly from gateway
+     * without modifying the source payroll run or payslips.
+     */
+    public function revalidateBatchItems(PayrollRun $payrollRun, PaymentBatch $batch): RedirectResponse
+    {
+        $this->authorizeAnyAccess(
+            ['hr.payroll.view', 'payments.disbursements.view', 'payments.disbursements.initialize'],
+            $payrollRun,
+            'Revalidate Batch Items'
+        );
+
+        try {
+            $this->payrollPaymentService->revalidateBatchItems($batch, $this->currentUser());
+
+            return redirect()->route('payroll.batches.show', [$payrollRun, $batch])->with('success', sprintf(
+                'Batch %s items revalidated from %s (%d Successful, %d Failed, Gateway Status: %s).',
+                $batch->batch_reference,
+                ucfirst($batch->gateway),
+                $batch->successful_items_count,
+                $batch->failed_items_count,
+                $batch->gateway_status ?: 'UPDATED'
+            ));
+        } catch (\Throwable $e) {
+            return redirect()->route('payroll.batches.show', [$payrollRun, $batch])->with('error', $e->getMessage());
+        }
     }
 
     /**

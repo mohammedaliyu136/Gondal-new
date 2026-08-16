@@ -43,7 +43,7 @@ class ZainpayApi
 
         $url = $this->baseUrl . '/' . ltrim($endpoint, '/');
 
-        $response = Http::withHeaders([
+        $response = Http::withoutVerifying()->withHeaders([
             'Authorization' => 'Bearer ' . $this->publicKey,
             'Accept'        => 'application/json',
             'Content-Type'  => 'application/json',
@@ -64,7 +64,7 @@ class ZainpayApi
 
         $url = $this->baseUrl . '/' . ltrim($endpoint, '/');
 
-        $response = Http::withHeaders([
+        $response = Http::withoutVerifying()->withHeaders([
             'Authorization' => 'Bearer ' . $this->publicKey,
             'Accept'        => 'application/json',
         ])->timeout(30)->get($url, $query);

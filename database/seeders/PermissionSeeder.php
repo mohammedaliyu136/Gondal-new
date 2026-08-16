@@ -112,10 +112,15 @@ class PermissionSeeder extends Seeder
 
             // Human resources
             ['hr.employees', self::RECORD, 'Employee records', 'Staff records and departments', false],
+            ['hr.setup', self::CRUD, 'HR setup and schemes', 'Master allowance types, loan schemes, deduction policies, and commission milestones', false],
             ['hr.leave', self::RECORD_APPROVE, 'All leave requests', 'Every employee\'s leave', false],
             ['hr.leave.own', ['view', 'create'], 'Own leave requests', 'Held automatically by every user', false],
             ['hr.payroll', self::RECORD_APPROVE, 'Payroll and salaries', 'Sensitive — salary figures and payment runs', true],
             ['hr.payslip.own', ['view'], 'Own payslips', 'Held automatically by every user', false],
+
+            // Payments & Gateway Disbursements
+            ['payments.disbursements', ['view', 'create', 'initialize', 'authorize', 'reconcile'], 'Payment disbursements & runs', 'Sensitive — single & bulk payouts via gateways and bank transfers', true],
+            ['payments.gateways', ['view', 'edit'], 'Payment gateway settings', 'Sensitive — API credentials, webhooks, and payment mode toggle', true],
 
             // Administration
             ['admin.users', self::CRUD, 'User accounts', 'Create and deactivate accounts', false],

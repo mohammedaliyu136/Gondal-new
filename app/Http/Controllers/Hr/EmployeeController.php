@@ -7,7 +7,9 @@ use App\Models\Department;
 use App\Models\Employee;
 use App\Services\Hr\EmployeeService;
 use App\Services\Hr\LeaveService;
+use App\Services\Payment\BankService;
 use App\Support\Wat;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -24,6 +26,7 @@ class EmployeeController extends Controller
     public function __construct(
         private readonly EmployeeService $employees,
         private readonly LeaveService $leave,
+        private readonly BankService $bankService,
     ) {}
 
     public function index(Request $request): View
@@ -45,6 +48,7 @@ class EmployeeController extends Controller
         return view('hr.employees.index', [
             'employees' => $employees,
             'departments' => Department::query()->active()->orderBy('name')->get(),
+            'banks' => $this->bankService->getBanks(),
             'seesSalaries' => $seesSalaries,
             /*
              * BR-35 — the same population the payroll run pays, computed the same
@@ -99,6 +103,31 @@ class EmployeeController extends Controller
     }
 
     /**
+     * AJAX endpoint to verify / resolve account holder name against gateway.
+     */
+    public function verifyBank(Request $request): JsonResponse
+    {
+        $this->authorizeAnyAccess(['hr.employees.create', 'hr.employees.edit'], null, 'Verify bank account');
+
+        $validated = $request->validate([
+            'account_number' => ['required', 'string'],
+            'bank_code' => ['required', 'string'],
+        ]);
+
+        $result = $this->bankService->verifyAccount($validated['account_number'], $validated['bank_code']);
+
+        return response()->json($result, $result['success'] ? 200 : 422);
+    }
+
+    /**
+     * AJAX endpoint to get list of supported Nigerian banks.
+     */
+    public function banks(): JsonResponse
+    {
+        return response()->json($this->bankService->getBanks());
+    }
+
+    /**
      * @return array<string, array<int, mixed>>
      */
     private function rules(?Employee $employee = null): array
@@ -119,8 +148,9 @@ class EmployeeController extends Controller
             // Naira in; the service converts to kobo (ARCH-6).
             'gross_monthly' => ['nullable', 'string'],
             'bank_name' => ['nullable', 'string', 'max:255'],
-            // Only the last four digits are stored — see EmployeeService.
+            'bank_code' => ['nullable', 'string', 'max:16'],
             'bank_account' => ['nullable', 'string', 'max:32'],
+            'bank_account_name' => ['nullable', 'string', 'max:255'],
             'next_of_kin_name' => ['nullable', 'string', 'max:255'],
             'next_of_kin_phone' => ['nullable', 'string', 'max:32'],
             'status' => ['nullable', 'in:probation,confirmed,on_leave,exited'],
@@ -131,7 +161,7 @@ class EmployeeController extends Controller
     private function nextCode(): string
     {
         $highest = (int) Employee::withoutDataScope()
-            ->selectRaw("max(cast(replace(code, 'EMP-', '') as integer)) as n")
+            ->selectRaw("max(cast(replace(code, 'EMP-', '') as unsigned)) as n")
             ->value('n');
 
         return 'EMP-'.str_pad((string) ($highest + 1), 4, '0', STR_PAD_LEFT);
@@ -144,10 +174,20 @@ class EmployeeController extends Controller
         $seesSalaries = $this->allows('hr.payroll.view');
 
         return view('hr.employees.show', [
-            'employee' => $employee->load(['department', 'lineManager', 'reports', 'user.roles']),
+            'employee' => $employee->load([
+                'department', 'lineManager', 'reports', 'user.roles', 'salaryProfile',
+                'staffLoans.compensationType', 'staffLoans.repayments',
+                'commissions.compensationType',
+                'overtimes',
+            ]),
             'seesSalaries' => $seesSalaries,
             'canEdit' => $this->allows('hr.employees.edit', $employee),
+            'canSetSalary' => $this->allows('hr.payroll.edit', $employee) || $this->allows('hr.payroll.create', $employee),
             'departments' => Department::query()->active()->orderBy('name')->get(),
+            'banks' => $this->bankService->getBanks(),
+            'loanTypes' => \App\Models\HrCompensationType::query()->category('loan')->active()->orderBy('name')->get(),
+            'commissionTypes' => \App\Models\HrCompensationType::query()->category('commission')->active()->orderBy('name')->get(),
+            'allowanceTypes' => \App\Models\HrCompensationType::query()->category('allowance')->active()->orderBy('name')->get(),
             /*
              * The picker excludes this employee: an employee cannot report to
              * themselves, and EmployeeService refuses it — offering the option

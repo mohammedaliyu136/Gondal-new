@@ -125,7 +125,7 @@ class ExtensionAgentController extends Controller
     private function nextCode(): string
     {
         $highest = (int) ExtensionAgent::withoutDataScope()
-            ->selectRaw("max(cast(replace(code, 'EXT-', '') as integer)) as n")
+            ->selectRaw("max(cast(replace(code, 'EXT-', '') as unsigned)) as n")
             ->value('n');
 
         return 'EXT-'.str_pad((string) ($highest + 1), 3, '0', STR_PAD_LEFT);

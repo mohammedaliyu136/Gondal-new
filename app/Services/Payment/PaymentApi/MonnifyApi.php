@@ -50,7 +50,7 @@ class MonnifyApi
 
         $url = $this->baseUrl . '/api/v1/auth/login';
 
-        $response = Http::withHeaders([
+        $response = Http::withoutVerifying()->withHeaders([
             'Authorization' => 'Basic ' . base64_encode($this->apiKey . ':' . $this->secretKey),
             'Content-Type'  => 'application/json',
         ])->timeout(30)->post($url);
@@ -73,7 +73,7 @@ class MonnifyApi
         $token = $this->login();
         $url = $this->baseUrl . '/' . ltrim($endpoint, '/');
 
-        $response = Http::withHeaders([
+        $response = Http::withoutVerifying()->withHeaders([
             'Authorization' => 'Bearer ' . $token,
             'Accept'        => 'application/json',
             'Content-Type'  => 'application/json',
@@ -91,7 +91,7 @@ class MonnifyApi
         $token = $this->login();
         $url = $this->baseUrl . '/' . ltrim($endpoint, '/');
 
-        $response = Http::withHeaders([
+        $response = Http::withoutVerifying()->withHeaders([
             'Authorization' => 'Bearer ' . $token,
             'Accept'        => 'application/json',
         ])->timeout(30)->get($url, $query);

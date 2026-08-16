@@ -165,8 +165,7 @@ final class Navigation
                     // §4 — `hr.leave.view` OR `hr.leave.own.view`
                     ['label' => 'Leave', 'route' => 'leave.index', 'permission' => ['hr.leave.view', 'hr.leave.own.view']],
                     ['label' => 'Open Positions', 'route' => 'positions.index', 'permission' => 'hr.employees.view'],
-                    // Payroll moved to Accounting — see the note there. HR keeps the
-                    // things about employing people, not about paying them.
+                    ['label' => 'HR Setup', 'route' => 'hr.setup.index', 'permission' => ['hr.setup.view', 'hr.employees.view', 'admin.settings.view']],
                 ],
             ],
             [

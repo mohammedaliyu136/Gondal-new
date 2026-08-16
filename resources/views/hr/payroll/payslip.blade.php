@@ -19,6 +19,37 @@
     </div>
   @endif
 
+  @if ($payslip->payrollRun?->status === 'draft' && (auth()->user()->can('hr.payroll.create') || auth()->user()->can('hr.payroll.edit')))
+    <div class="card mb-16" style="background:#f0fdf4;border:1px solid #bbf7d0">
+      <div class="card-head flex-between" style="padding:12px 18px">
+        <div style="color:#166534">
+          <strong>Draft Payslip &middot; {{ $payslip->payrollRun->periodLabel() }}</strong>
+          <div style="font-size:12.5px;color:#15803d">You can adjust this employee's salary profile, commissions, or recalculate/remove this draft payslip.</div>
+        </div>
+        <div class="flex" style="gap:8px">
+          @if ($payslip->employee)
+            <a href="{{ route('employees.salary.edit', $payslip->employee) }}" class="btn btn-outline btn-sm">
+              Edit Salary Structure &rarr;
+            </a>
+          @endif
+          <form method="POST" action="{{ route('payroll.payslips.recalculate', $payslip) }}" style="display:inline">
+            @csrf
+            <button type="submit" class="btn btn-primary btn-sm">
+              <span>&#8635;</span> Recalculate
+            </button>
+          </form>
+          <form method="POST" action="{{ route('payroll.payslips.destroy', $payslip) }}" style="display:inline" onsubmit="return confirm('Remove {{ $payslip->employee?->name }} from this draft payroll run?')">
+            @csrf
+            @method('DELETE')
+            <button type="submit" class="btn btn-ghost btn-sm text-danger">
+              Remove from Run
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  @endif
+
   <div class="payslip">
     <div class="payslip-head">
       <div>

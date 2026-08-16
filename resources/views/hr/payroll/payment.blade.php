@@ -120,6 +120,93 @@
     </div>
   </div>
 
+  @if (isset($batches) && $batches->isNotEmpty())
+    {{-- Recorded Payment Batches Card --}}
+    <div class="card mb-16">
+      <div class="card-head">
+        <div>
+          <h3>Payment Batches &amp; Disbursement History</h3>
+          <p>Recorded batch transactions, gateway references, and fees</p>
+        </div>
+      </div>
+      <div class="card-body flush">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Batch Reference</th>
+                <th>Channel / Gateway</th>
+                <th class="num">Net Disbursed</th>
+                <th class="num">Gateway Fee</th>
+                <th>Items (Success / Total)</th>
+                <th>Status</th>
+                <th>Disbursed At</th>
+                <th class="actions"></th>
+              </tr>
+            </thead>
+            <tbody>
+              @php
+                $latestPendingBatch = $batches->whereIn('status', ['processing', 'initialized'])->sortByDesc('id')->first();
+              @endphp
+              @foreach ($batches as $batch)
+                <tr>
+                  <td class="font-bold perm-key">
+                    <a href="{{ route('payroll.batches.show', [$run, $batch]) }}" style="text-decoration:underline">
+                      {{ $batch->batch_reference }}
+                    </a>
+                  </td>
+                  <td>
+                    <span class="badge info plain">{{ ucfirst(str_replace('_', ' ', $batch->gateway)) }}</span>
+                    @if ($batch->gateway_batch_reference)
+                      <div class="cell-sub perm-key">{{ $batch->gateway_batch_reference }}</div>
+                    @endif
+                  </td>
+                  <td class="num font-bold">{{ \App\Support\Money::format($batch->total_amount_minor) }}</td>
+                  <td class="num">{{ \App\Support\Money::format($batch->total_fee_minor) }}</td>
+                  <td>
+                    <span class="font-bold">{{ $batch->successful_items_count }}</span> / {{ $batch->total_items_count }}
+                    @if ($batch->failed_items_count > 0)
+                      <span class="badge danger plain">{{ $batch->failed_items_count }} failed</span>
+                    @endif
+                  </td>
+                  <td>
+                    <span class="badge {{ ['completed' => 'success', 'processing' => 'warning', 'partially_completed' => 'warning', 'failed' => 'danger'][$batch->status] ?? 'muted' }}">
+                      {{ ucfirst(str_replace('_', ' ', $batch->status)) }}
+                    </span>
+                    @if ($batch->gateway_status)
+                      <div class="cell-sub perm-key" style="font-size:0.72rem;margin-top:2px;color:var(--text-muted)">
+                        GW: {{ $batch->gateway_status }}
+                      </div>
+                    @endif
+                  </td>
+                  <td>{{ $batch->disbursed_at ? \App\Support\Wat::dateTime($batch->disbursed_at) : '—' }}</td>
+                  <td class="actions">
+                    <div class="flex gap-4" style="justify-content:flex-end;align-items:center">
+                      <a href="{{ route('payroll.batches.show', [$run, $batch]) }}" class="btn btn-ghost btn-sm" title="View Batch Details & Items">
+                        Details &rarr;
+                      </a>
+                      @if (!in_array($batch->status, ['completed', 'settled']) && in_array($batch->gateway, ['monnify', 'paystack']))
+                        <form method="POST" action="{{ route('payroll.batches.sync', [$run, $batch]) }}" style="display:inline">
+                          @csrf
+                          <button type="submit" class="btn btn-ghost btn-sm" title="Query live transaction status from gateway">
+                            &#8635; Sync Status
+                          </button>
+                        </form>
+                        <a href="#modal-otp-{{ $batch->id }}" class="btn btn-outline btn-sm font-bold" style="color:var(--primary-dark)">
+                          Enter OTP &rarr;
+                        </a>
+                      @endif
+                    </div>
+                  </td>
+                </tr>
+              @endforeach
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  @endif
+
   {{-- Employee Payslips / Payout Schedule Table --}}
   <div class="card mb-16">
     <div class="card-head">
@@ -225,11 +312,11 @@
             <div class="field mb-16">
               <label for="disburse-method">Disbursement Channel / Method <span class="req">*</span></label>
               <select id="disburse-method" name="payment_method" required>
-                <option value="bank_transfer" selected>Direct Corporate Bank Settlement / EFT</option>
+                <option value="bank_transfer" selected>Direct Corporate Bank Settlement / EFT (₦0 Fee)</option>
                 @foreach ($gateways as $gwKey => $gw)
                   @if ($gw['is_enabled'])
                     <option value="{{ $gwKey }}">
-                      {{ $gw['label'] }} API Transfer ({{ ucfirst($gw['mode']) }})
+                      {{ $gw['label'] }} API Bulk Transfer ({{ ucfirst($gw['mode']) }})
                     </option>
                   @endif
                 @endforeach
@@ -246,11 +333,53 @@
           <div class="modal-foot">
             <a href="#" class="btn btn-ghost">Cancel</a>
             <button type="submit" class="btn btn-primary" onclick="return confirm('Authorize and disburse payroll payment of {{ \App\Support\Money::format($run->net_total_minor) }}?');">
-              Authorize &amp; Disburse Payment
+              {{ $canAuthorize ? 'Authorize & Disburse Payment' : 'Initialize Payout Batch' }}
             </button>
           </div>
         </form>
       </div>
     </div>
+  @endif
+
+  @if (isset($batches))
+    @foreach ($batches as $batch)
+      @if (!in_array($batch->status, ['completed', 'settled']) && in_array($batch->gateway, ['monnify', 'paystack']))
+        <div id="modal-otp-{{ $batch->id }}" class="modal">
+          <a href="#" class="modal-overlay"></a>
+          <div class="modal-dialog narrow">
+            <div class="modal-head">
+              <div>
+                <h3>Authorize Batch Transfer</h3>
+                <p>{{ $batch->batch_reference }} &middot; {{ ucfirst(str_replace('_', ' ', $batch->gateway)) }}</p>
+              </div>
+              <a href="#" class="modal-close">&times;</a>
+            </div>
+            <form method="POST" action="{{ route('payroll.batches.otp', [$run, $batch]) }}">
+              @csrf
+              <div class="modal-body">
+                <div class="alert info mb-16">
+                  <span>&#128274;</span>
+                  <div>
+                    Enter the One-Time Password (OTP) or authorization code sent to your gateway phone/email.
+                    <div style="margin-top:6px;font-size:0.82rem;opacity:0.9">
+                      <em>Note:</em> If OTP is disabled on your {{ ucfirst($batch->gateway) }} account, submitting will automatically verify and finalize the batch.
+                    </div>
+                  </div>
+                </div>
+                <div class="field">
+                  <label for="otp-{{ $batch->id }}">Authorization OTP / Code <span class="req">*</span></label>
+                  <input type="password" id="otp-{{ $batch->id }}" name="otp" required placeholder="e.g. 123456" autocomplete="one-time-code" autofocus />
+                  <div class="hint">Sent by {{ ucfirst($batch->gateway) }} gateway.</div>
+                </div>
+              </div>
+              <div class="modal-foot">
+                <a href="#" class="btn btn-outline">Cancel</a>
+                <button type="submit" class="btn btn-primary">Submit OTP &amp; Finalize &rarr;</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      @endif
+    @endforeach
   @endif
 @endsection

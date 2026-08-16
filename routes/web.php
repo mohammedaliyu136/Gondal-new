@@ -22,10 +22,15 @@ use App\Http\Controllers\Finance\PaymentRunController;
 use App\Http\Controllers\Finance\TransportPaymentRunController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\Hr\DepartmentController;
+use App\Http\Controllers\Hr\EmployeeCommissionController;
 use App\Http\Controllers\Hr\EmployeeController;
+use App\Http\Controllers\Hr\EmployeeOvertimeController;
+use App\Http\Controllers\Hr\EmployeeSalaryController;
+use App\Http\Controllers\Hr\HrSetupController;
 use App\Http\Controllers\Hr\LeaveController;
 use App\Http\Controllers\Hr\PayrollController;
 use App\Http\Controllers\Hr\PositionController;
+use App\Http\Controllers\Hr\StaffLoanController;
 use App\Http\Controllers\Milk\BatchController;
 use App\Http\Controllers\Milk\CollectionCenterController;
 use App\Http\Controllers\Milk\CollectionPointController;
@@ -486,6 +491,12 @@ Route::middleware(['auth', 'session.authenticate', 'account.usable', 'session.to
         Route::get('/employees/{employee}', [EmployeeController::class, 'show'])->name('employees.show');
     });
 
+    // Sensitive — Salary Structure Gated on hr.payroll.view / hr.payroll.edit
+    Route::get('/employees/{employee}/salary', [EmployeeSalaryController::class, 'edit'])
+        ->middleware('permission:hr.payroll.view|hr.payroll.edit')->name('employees.salary.edit');
+    Route::put('/employees/{employee}/salary', [EmployeeSalaryController::class, 'update'])
+        ->middleware('permission:hr.payroll.edit|hr.payroll.create')->name('employees.salary.update');
+
     /*
      * hr.employees.create and .edit were live permissions that nothing checked —
      * the register was read-only and an employee could only arrive via the seeder,
@@ -495,6 +506,38 @@ Route::middleware(['auth', 'session.authenticate', 'account.usable', 'session.to
         ->middleware('permission:hr.employees.create')->name('employees.store');
     Route::put('/employees/{employee}', [EmployeeController::class, 'update'])
         ->middleware('permission:hr.employees.edit')->name('employees.update');
+    Route::post('/employees/verify-bank', [EmployeeController::class, 'verifyBank'])
+        ->middleware('permission:hr.employees.create|hr.employees.edit')->name('employees.verify-bank');
+    Route::get('/employees/banks', [EmployeeController::class, 'banks'])
+        ->middleware('permission:hr.employees.view')->name('employees.banks');
+
+    // Sensitive — Dynamic HR Compensation & Transaction Routes (Loans, Commissions, Overtime) gated on hr.payroll
+    Route::middleware('permission:hr.payroll.edit|hr.payroll.create')->group(function (): void {
+        Route::post('/employees/{employee}/loans', [StaffLoanController::class, 'store'])->name('employees.loans.store');
+        Route::post('/staff-loans/{loan}/repay', [StaffLoanController::class, 'repay'])->name('staff-loans.repay');
+        Route::post('/staff-loans/{loan}/toggle', [StaffLoanController::class, 'toggleStatus'])->name('staff-loans.toggle');
+
+        Route::post('/employees/{employee}/commissions', [EmployeeCommissionController::class, 'store'])->name('employees.commissions.store');
+        Route::delete('/commissions/{commission}', [EmployeeCommissionController::class, 'destroy'])->name('commissions.destroy');
+
+        Route::post('/employees/{employee}/overtimes', [EmployeeOvertimeController::class, 'store'])->name('employees.overtimes.store');
+        Route::delete('/overtimes/{overtime}', [EmployeeOvertimeController::class, 'destroy'])->name('overtimes.destroy');
+    });
+
+    // HR Setup Hub / Master Configuration (Allowances, Loan Schemes, Commission Milestones, Leave Types, Deductions)
+    Route::get('/hr/setup', [HrSetupController::class, 'index'])
+        ->middleware('permission:hr.setup.view|admin.settings.view|hr.employees.view')->name('hr.setup.index');
+    Route::post('/hr/setup', [HrSetupController::class, 'store'])
+        ->middleware('permission:hr.setup.create|hr.setup.edit|admin.settings.edit|hr.employees.create')->name('hr.setup.store');
+    Route::put('/hr/setup/{type}', [HrSetupController::class, 'update'])
+        ->middleware('permission:hr.setup.edit|admin.settings.edit')->name('hr.setup.update');
+    Route::delete('/hr/setup/{type}', [HrSetupController::class, 'destroy'])
+        ->middleware('permission:hr.setup.delete|hr.setup.edit|admin.settings.edit')->name('hr.setup.destroy');
+
+    Route::post('/hr/setup/leave-types', [HrSetupController::class, 'storeLeaveType'])
+        ->middleware('permission:hr.setup.create|hr.setup.edit|admin.settings.edit|hr.leave.create')->name('hr.setup.leave-types.store');
+    Route::put('/hr/setup/leave-types/{leaveType}', [HrSetupController::class, 'updateLeaveType'])
+        ->middleware('permission:hr.setup.edit|admin.settings.edit')->name('hr.setup.leave-types.update');
 
     Route::middleware('permission:hr.employees.view')->group(function (): void {
         Route::get('/departments', [DepartmentController::class, 'index'])->name('departments.index');
@@ -528,6 +571,12 @@ Route::middleware(['auth', 'session.authenticate', 'account.usable', 'session.to
         ->middleware('permission:hr.payroll.view')->name('payroll.index');
     Route::post('/payroll', [PayrollController::class, 'store'])
         ->middleware('permission:hr.payroll.create')->name('payroll.store');
+    Route::post('/payroll/{payrollRun}/sync', [PayrollController::class, 'syncRun'])
+        ->middleware('permission:hr.payroll.create|hr.payroll.edit')->name('payroll.sync');
+    Route::post('/payroll/{payrollRun}/add-employee', [PayrollController::class, 'addEmployee'])
+        ->middleware('permission:hr.payroll.create|hr.payroll.edit')->name('payroll.add-employee');
+    Route::delete('/payroll/{payrollRun}', [PayrollController::class, 'destroy'])
+        ->middleware('permission:hr.payroll.create|hr.payroll.delete')->name('payroll.destroy');
     Route::post('/payroll/{payrollRun}/submit', [PayrollController::class, 'submit'])
         ->middleware('permission:hr.payroll.create')->name('payroll.submit');
     Route::post('/payroll/{payrollRun}/paid', [PayrollController::class, 'markPaid'])
@@ -536,6 +585,20 @@ Route::middleware(['auth', 'session.authenticate', 'account.usable', 'session.to
         ->middleware('permission:hr.payroll.view')->name('payroll.payment');
     Route::post('/payroll/{payrollRun}/disburse', [PayrollController::class, 'disburse'])
         ->middleware('permission:hr.payroll.approve')->name('payroll.disburse');
+    Route::get('/payroll/{payrollRun}/batches/{batch}', [PayrollController::class, 'batch'])
+        ->middleware('permission:hr.payroll.view')->name('payroll.batches.show');
+    Route::post('/payroll/{payrollRun}/batches/{batch}/revalidate', [PayrollController::class, 'revalidateBatchItems'])
+        ->middleware('permission:hr.payroll.view')->name('payroll.batches.revalidate');
+    Route::post('/payroll/{payrollRun}/batches/{batch}/otp', [PayrollController::class, 'validateBatchOtp'])
+        ->middleware('permission:hr.payroll.approve')->name('payroll.batches.otp');
+    Route::post('/payroll/{payrollRun}/batches/{batch}/sync', [PayrollController::class, 'syncBatchStatus'])
+        ->middleware('permission:hr.payroll.approve')->name('payroll.batches.sync');
+
+    // Draft Payslip Adjustments
+    Route::post('/payroll/payslips/{payslip}/recalculate', [PayrollController::class, 'recalculatePayslip'])
+        ->middleware('permission:hr.payroll.create|hr.payroll.edit')->name('payroll.payslips.recalculate');
+    Route::delete('/payroll/payslips/{payslip}', [PayrollController::class, 'destroyPayslip'])
+        ->middleware('permission:hr.payroll.create|hr.payroll.edit')->name('payroll.payslips.destroy');
 
     // §4 — `hr.payroll.view` OR own.
     Route::get('/payroll/payslips/{payslip}', [PayrollController::class, 'payslip'])

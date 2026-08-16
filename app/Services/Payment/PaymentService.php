@@ -3,9 +3,12 @@
 namespace App\Services\Payment;
 
 use App\Services\Payment\Contracts\PaymentGatewayInterface;
+use App\Services\Payment\DTOs\BulkTransferRequest;
+use App\Services\Payment\DTOs\BulkTransferResult;
 use App\Services\Payment\DTOs\PaymentInitRequest;
 use App\Services\Payment\DTOs\PaymentInitResult;
 use App\Services\Payment\DTOs\PaymentVerifyResult;
+use App\Services\Payment\DTOs\PayoutRecipient;
 use App\Services\Payment\Gateways\PaymentGatewayFactory;
 use App\Support\Settings;
 use Illuminate\Support\Facades\Log;
@@ -21,7 +24,7 @@ class PaymentService
     }
 
     /**
-     * Initialize a payment transaction with the selected or default gateway.
+     * Initialize a payment collection transaction with the selected or default gateway.
      */
     public function initialize(PaymentInitRequest $request, ?string $gateway = null): PaymentInitResult
     {
@@ -37,6 +40,22 @@ class PaymentService
     }
 
     /**
+     * Initiate a single transfer payout.
+     */
+    public function transfer(PayoutRecipient $recipient, ?string $gateway = null, ?string $otp = null): PaymentInitResult
+    {
+        return $this->gateway($gateway)->initiateTransfer($recipient, $otp);
+    }
+
+    /**
+     * Initiate a bulk transfer payout batch.
+     */
+    public function bulkTransfer(BulkTransferRequest $request, ?string $gateway = null): BulkTransferResult
+    {
+        return $this->gateway($gateway)->initiateBulkTransfer($request);
+    }
+
+    /**
      * Handle and verify an incoming webhook from a payment gateway.
      */
     public function handleWebhook(string $gateway, array $payload, array $headers, string $rawBody): ?PaymentVerifyResult
@@ -46,7 +65,7 @@ class PaymentService
 
     /**
      * Generate a standard payment reference string.
-     * E.g. 'GON-PAY-20260814-ABCD1234' or 'ORD-101-1692012345'
+     * E.g. 'GON-PAY-20260814-ABCD1234' or 'BATCH-PAY-20260815-A1B2'
      */
     public function generateReference(string $prefix = 'PAY'): string
     {

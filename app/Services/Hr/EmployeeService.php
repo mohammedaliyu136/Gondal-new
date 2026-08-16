@@ -135,6 +135,8 @@ class EmployeeService
             'joined_on' => $data['joined_on'] ?? $existing?->joined_on?->toDateString(),
             'confirmed_on' => $data['confirmed_on'] ?? $existing?->confirmed_on?->toDateString(),
             'bank_name' => $data['bank_name'] ?? $existing?->bank_name,
+            'bank_code' => $data['bank_code'] ?? $existing?->bank_code,
+            'bank_account_name' => $data['bank_account_name'] ?? $existing?->bank_account_name,
             'next_of_kin_name' => $data['next_of_kin_name'] ?? $existing?->next_of_kin_name,
             'next_of_kin_phone' => $data['next_of_kin_phone'] ?? $existing?->next_of_kin_phone,
             /*
@@ -153,13 +155,9 @@ class EmployeeService
             $attributes['gross_monthly_minor'] = (int) $existing->gross_monthly_minor;
         }
 
-        /*
-         * Only the last four digits are ever kept. Nobody in this system needs a
-         * full account number to do their job, and a register that holds one is a
-         * register worth stealing.
-         */
         if (! empty($data['bank_account'])) {
             $digits = preg_replace('/\D/', '', (string) $data['bank_account']) ?? '';
+            $attributes['bank_account_number'] = $digits !== '' ? $digits : null;
             $attributes['bank_account_masked'] = $digits === ''
                 ? null
                 : str_repeat('•', max(0, strlen($digits) - 4)).substr($digits, -4);

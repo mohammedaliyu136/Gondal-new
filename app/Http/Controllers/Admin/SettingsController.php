@@ -78,7 +78,6 @@ class SettingsController extends Controller
                     'mode' => Settings::string('payment.paystack.mode', 'test'),
                     'public_key' => Settings::string('payment.paystack.public_key', config('services.paystack.public_key', '')),
                     'secret_key' => Settings::string('payment.paystack.secret_key', config('services.paystack.secret_key', '')),
-                    'merchant_email' => Settings::string('payment.paystack.merchant_email', config('services.paystack.merchant_email', '')),
                 ],
                 'monnify' => [
                     'enabled' => Settings::boolean('payment.monnify.enabled', false),
@@ -86,12 +85,14 @@ class SettingsController extends Controller
                     'api_key' => Settings::string('payment.monnify.api_key', config('services.monnify.api_key', '')),
                     'secret_key' => Settings::string('payment.monnify.secret_key', config('services.monnify.secret_key', '')),
                     'contract_code' => Settings::string('payment.monnify.contract_code', config('services.monnify.contract_code', '')),
+                    'source_account_number' => Settings::string('payment.monnify.source_account_number', config('services.monnify.source_account_number', '')),
                 ],
                 'zainpay' => [
                     'enabled' => Settings::boolean('payment.zainpay.enabled', false),
                     'mode' => Settings::string('payment.zainpay.mode', 'test'),
                     'public_key' => Settings::string('payment.zainpay.public_key', config('services.zainpay.public_key', '')),
                     'zainbox_code' => Settings::string('payment.zainpay.zainbox_code', config('services.zainpay.zainbox_code', '')),
+                    'source_account_number' => Settings::string('payment.zainpay.source_account_number', config('services.zainpay.source_account_number', '')),
                 ],
             ],
             // NG-1 / NG-2 — the disabled-modules panel, from data.
@@ -119,18 +120,19 @@ class SettingsController extends Controller
             'payment_paystack_mode' => ['required', 'in:test,live'],
             'payment_paystack_public_key' => ['nullable', 'string', 'max:255'],
             'payment_paystack_secret_key' => ['nullable', 'string', 'max:255'],
-            'payment_paystack_merchant_email' => ['nullable', 'email', 'max:255'],
             
             'payment_monnify_enabled' => ['nullable', 'boolean'],
             'payment_monnify_mode' => ['required', 'in:test,live'],
             'payment_monnify_api_key' => ['nullable', 'string', 'max:255'],
             'payment_monnify_secret_key' => ['nullable', 'string', 'max:255'],
             'payment_monnify_contract_code' => ['nullable', 'string', 'max:255'],
+            'payment_monnify_source_account_number' => ['nullable', 'string', 'max:255'],
 
             'payment_zainpay_enabled' => ['nullable', 'boolean'],
             'payment_zainpay_mode' => ['required', 'in:test,live'],
             'payment_zainpay_public_key' => ['nullable', 'string', 'max:255'],
             'payment_zainpay_zainbox_code' => ['nullable', 'string', 'max:255'],
+            'payment_zainpay_source_account_number' => ['nullable', 'string', 'max:255'],
         ], [], [
             'milk_delivery_cutoff_latest_override' => 'latest permitted cut-off',
             'payment_default_gateway' => 'default payment gateway',
@@ -151,18 +153,19 @@ class SettingsController extends Controller
             'payment.paystack.mode' => $validated['payment_paystack_mode'],
             'payment.paystack.public_key' => (string) ($validated['payment_paystack_public_key'] ?? ''),
             'payment.paystack.secret_key' => (string) ($validated['payment_paystack_secret_key'] ?? ''),
-            'payment.paystack.merchant_email' => (string) ($validated['payment_paystack_merchant_email'] ?? ''),
 
             'payment.monnify.enabled' => $request->boolean('payment_monnify_enabled'),
             'payment.monnify.mode' => $validated['payment_monnify_mode'],
             'payment.monnify.api_key' => (string) ($validated['payment_monnify_api_key'] ?? ''),
             'payment.monnify.secret_key' => (string) ($validated['payment_monnify_secret_key'] ?? ''),
             'payment.monnify.contract_code' => (string) ($validated['payment_monnify_contract_code'] ?? ''),
+            'payment.monnify.source_account_number' => (string) ($validated['payment_monnify_source_account_number'] ?? ''),
 
             'payment.zainpay.enabled' => $request->boolean('payment_zainpay_enabled'),
             'payment.zainpay.mode' => $validated['payment_zainpay_mode'],
             'payment.zainpay.public_key' => (string) ($validated['payment_zainpay_public_key'] ?? ''),
             'payment.zainpay.zainbox_code' => (string) ($validated['payment_zainpay_zainbox_code'] ?? ''),
+            'payment.zainpay.source_account_number' => (string) ($validated['payment_zainpay_source_account_number'] ?? ''),
         ], $this->currentUser(), 'general');
 
         // Flush API client memoized instances

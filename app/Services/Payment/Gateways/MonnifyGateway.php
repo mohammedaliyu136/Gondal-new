@@ -3,9 +3,12 @@
 namespace App\Services\Payment\Gateways;
 
 use App\Services\Payment\Contracts\PaymentGatewayInterface;
+use App\Services\Payment\DTOs\BulkTransferRequest;
+use App\Services\Payment\DTOs\BulkTransferResult;
 use App\Services\Payment\DTOs\PaymentInitRequest;
 use App\Services\Payment\DTOs\PaymentInitResult;
 use App\Services\Payment\DTOs\PaymentVerifyResult;
+use App\Services\Payment\DTOs\PayoutRecipient;
 use App\Services\Payment\PaymentApi\MonnifyApi;
 use App\Support\Settings;
 use Illuminate\Support\Facades\Log;
@@ -145,6 +148,167 @@ class MonnifyGateway implements PaymentGatewayInterface
         } catch (\Throwable $e) {
             Log::error('Monnify webhook verification failed for ref ' . $reference . ': ' . $e->getMessage());
             return null;
+        }
+    }
+
+    public function initiateTransfer(PayoutRecipient $recipient, ?string $otp = null): PaymentInitResult
+    {
+        if (!$this->isEnabled()) {
+            throw new Exception('Monnify gateway is currently disabled.');
+        }
+
+        try {
+            $api = MonnifyApi::getInstance();
+            $majorAmount = round($recipient->amountMinor / 100, 2);
+
+            $payload = [
+                'amount' => $majorAmount,
+                'reference' => $recipient->reference,
+                'narration' => $recipient->narration ?? 'Payroll Disbursement',
+                'destinationBankCode' => $recipient->bankCode,
+                'destinationAccountNumber' => $recipient->accountNumber,
+                'currency' => 'NGN',
+                'sourceAccountNumber' => Settings::string('payment.monnify.source_account_number', ''),
+            ];
+
+            $response = $api->post('api/v2/disbursements/single-transfer', $payload);
+
+            if (isset($response['requestSuccessful']) && $response['requestSuccessful'] === true) {
+                $data = $response['responseBody'] ?? [];
+                return new PaymentInitResult(
+                    reference: $recipient->reference,
+                    redirectUrl: null,
+                    rawResponse: json_encode($response),
+                    success: true,
+                    message: $response['responseMessage'] ?? 'Transfer dispatched',
+                    data: $data
+                );
+            }
+
+            throw new Exception($response['responseMessage'] ?? 'Monnify transfer failed');
+        } catch (\Throwable $e) {
+            Log::error('Monnify transfer error: ' . $e->getMessage(), ['reference' => $recipient->reference]);
+            throw new Exception('Monnify transfer failed: ' . $e->getMessage(), 0, $e);
+        }
+    }
+
+    public function initiateBulkTransfer(BulkTransferRequest $request): BulkTransferResult
+    {
+        if (!$this->isEnabled()) {
+            throw new Exception('Monnify gateway is currently disabled.');
+        }
+
+        $itemResults = [];
+        $totalFeeMinor = 0;
+
+        try {
+            $api = MonnifyApi::getInstance();
+            $transactionList = [];
+
+            foreach ($request->recipients as $recipient) {
+                $transactionList[] = [
+                    'amount' => round($recipient->amountMinor / 100, 2),
+                    'reference' => $recipient->reference,
+                    'narration' => $recipient->narration ?? $request->title,
+                    'destinationBankCode' => $recipient->bankCode,
+                    'destinationAccountNumber' => $recipient->accountNumber,
+                    'destinationAccountName' => $recipient->name,
+                    'currency' => 'NGN',
+                ];
+            }
+
+            $payload = [
+                'title' => $request->title,
+                'batchReference' => $request->batchReference,
+                'narration' => $request->title,
+                'sourceAccountNumber' => Settings::string('payment.monnify.source_account_number', ''),
+                'transactionList' => $transactionList,
+            ];
+
+            // Monnify Bulk Disbursement API v2 endpoint: POST /api/v2/disbursements/batch
+            $response = $api->post('api/v2/disbursements/batch', $payload);
+
+            if (isset($response['requestSuccessful']) && $response['requestSuccessful'] === true) {
+                $body = $response['responseBody'] ?? [];
+                $batchId = $body['batchReference'] ?? $request->batchReference;
+
+                // If OTP was provided and batch requires validation
+                if ($request->otp !== null && !empty($request->otp)) {
+                    try {
+                        $api->post('api/v2/disbursements/batch/validate-otp', [
+                            'reference' => $batchId,
+                            'authorizationCode' => $request->otp,
+                        ]);
+                    } catch (\Throwable $e) {
+                        Log::warning('Monnify batch OTP validation warning: ' . $e->getMessage());
+                    }
+                }
+
+                $transactions = $body['transactionList'] ?? ($body['transactions'] ?? []);
+                $allSuccess = true;
+                $hasSuccess = false;
+
+                foreach ($request->recipients as $recipient) {
+                    $ref = $recipient->reference;
+                    $matchedTx = null;
+
+                    if (!empty($transactions) && is_array($transactions)) {
+                        foreach ($transactions as $tx) {
+                            if (is_array($tx) && (($tx['reference'] ?? null) === $ref || ($tx['destinationAccountNumber'] ?? null) === $recipient->accountNumber)) {
+                                $matchedTx = $tx;
+                                break;
+                            }
+                        }
+                    }
+
+                    $txStatus = strtoupper($matchedTx['status'] ?? 'PENDING');
+                    $txMsg = $matchedTx['responseMessage'] ?? ($matchedTx['message'] ?? ($response['responseMessage'] ?? 'Dispatched to Monnify'));
+                    $isTxSuccess = ($txStatus === 'SUCCESS' || $txStatus === 'PENDING' || $txStatus === 'IN_PROGRESS' || $txStatus === 'PAID');
+
+                    if ($isTxSuccess) {
+                        $itemResults[$ref] = [
+                            'status' => 'successful',
+                            'gateway_status' => $txStatus,
+                            'gateway_reference' => (string) ($matchedTx['transactionReference'] ?? ($matchedTx['reference'] ?? $batchId)),
+                            'fee_minor' => 1500, // ₦15 Monnify fee per line
+                            'message' => $txMsg,
+                            'raw' => $matchedTx ?? ['status' => $txStatus, 'message' => $txMsg],
+                        ];
+                        $totalFeeMinor += 1500;
+                        $hasSuccess = true;
+                    } else {
+                        $allSuccess = false;
+                        $itemResults[$ref] = [
+                            'status' => 'failed',
+                            'gateway_status' => $txStatus,
+                            'gateway_reference' => (string) ($matchedTx['transactionReference'] ?? ($matchedTx['reference'] ?? $batchId)),
+                            'fee_minor' => 0,
+                            'message' => $txMsg,
+                            'raw' => $matchedTx ?? ['status' => $txStatus, 'message' => $txMsg],
+                        ];
+                    }
+                }
+
+                $gwStatus = strtoupper($body['status'] ?? 'PENDING_AUTHORIZATION');
+                $batchStatus = ($gwStatus === 'SUCCESS' || $gwStatus === 'COMPLETED') ? 'completed' : 'processing';
+
+                return BulkTransferResult::successful(
+                    batchReference: $request->batchReference,
+                    gatewayBatchReference: (string) $batchId,
+                    status: $batchStatus,
+                    message: $response['responseMessage'] ?? 'Batch transfer initiated with Monnify',
+                    totalAmountMinor: $request->totalAmountMinor(),
+                    totalFeeMinor: $totalFeeMinor,
+                    itemResults: $itemResults,
+                    rawResponse: $response,
+                    gatewayStatus: $gwStatus,
+                );
+            }
+
+            return BulkTransferResult::failed($request->batchReference, $response['responseMessage'] ?? 'Monnify batch transfer failed', $response);
+        } catch (\Throwable $e) {
+            Log::error('Monnify bulk transfer error: ' . $e->getMessage(), ['batch' => $request->batchReference]);
+            return BulkTransferResult::failed($request->batchReference, $e->getMessage());
         }
     }
 }

@@ -12,9 +12,10 @@ class PaymentGatewayFactory
      * Supported payment gateways.
      */
     public const SUPPORTED_GATEWAYS = [
-        'paystack' => 'Paystack',
-        'monnify'  => 'Monnify',
-        'zainpay'  => 'Zainpay',
+        'paystack'      => 'Paystack',
+        'monnify'       => 'Monnify',
+        'zainpay'       => 'Zainpay',
+        'bank_transfer' => 'Direct Bank Settlement / EFT',
     ];
 
     /**
@@ -26,10 +27,11 @@ class PaymentGatewayFactory
         $gatewayKey = strtolower(trim($gatewayKey));
 
         return match ($gatewayKey) {
-            'paystack' => new PaystackGateway(),
-            'monnify'  => new MonnifyGateway(),
-            'zainpay'  => new ZainpayGateway(),
-            default    => throw new Exception("Unsupported payment gateway: [{$gatewayKey}]. Supported gateways: " . implode(', ', array_keys(self::SUPPORTED_GATEWAYS))),
+            'paystack'                 => new PaystackGateway(),
+            'monnify'                  => new MonnifyGateway(),
+            'zainpay'                  => new ZainpayGateway(),
+            'bank_transfer', 'cash'    => new BankTransferGateway(),
+            default                    => throw new Exception("Unsupported payment gateway: [{$gatewayKey}]."),
         };
     }
 
@@ -63,6 +65,9 @@ class PaymentGatewayFactory
      */
     public static function isEnabled(string $gateway): bool
     {
+        if ($gateway === 'bank_transfer' || $gateway === 'cash') {
+            return true;
+        }
         return Settings::boolean("payment.{$gateway}.enabled", true);
     }
 }

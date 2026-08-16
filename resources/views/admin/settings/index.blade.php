@@ -264,7 +264,7 @@
                     {{ strtoupper($paymentSettings['paystack']['mode']) }} MODE
                   </span>
                 </div>
-                <div class="text-small text-muted">Supports Card, Bank Transfer, USSD</div>
+                <div class="text-small text-muted">Supports Card, Bank Transfer, USSD &amp; Bulk Transfers</div>
               </div>
               <div class="card-body" style="padding:16px">
                 <div class="form-grid">
@@ -276,17 +276,12 @@
                     </select>
                   </div>
                   <div class="field">
-                    <label for="st-paystack-email">Merchant / Contact Email</label>
-                    <input type="email" id="st-paystack-email" name="payment_paystack_merchant_email"
-                           value="{{ $paymentSettings['paystack']['merchant_email'] }}" placeholder="e.g. finance@gondal.ng" />
-                  </div>
-                  <div class="field">
                     <label for="st-paystack-pub">Public Key</label>
                     <input type="text" id="st-paystack-pub" name="payment_paystack_public_key"
                            value="{{ $paymentSettings['paystack']['public_key'] }}" placeholder="pk_test_... or pk_live_..." autocomplete="off" />
                   </div>
-                  <div class="field">
-                    <label for="st-paystack-sec">Secret Key</label>
+                  <div class="field full">
+                    <label for="st-paystack-sec">Secret Key <span class="req">*</span></label>
                     <input type="password" id="st-paystack-sec" name="payment_paystack_secret_key"
                            value="{{ $paymentSettings['paystack']['secret_key'] }}" placeholder="sk_test_... or sk_live_..." autocomplete="off" />
                   </div>
@@ -310,7 +305,7 @@
                     {{ strtoupper($paymentSettings['monnify']['mode']) }} MODE
                   </span>
                 </div>
-                <div class="text-small text-muted">Supports Reserved Accounts, Dynamic Accounts, Cards</div>
+                <div class="text-small text-muted">Supports Reserved Accounts, Dynamic Accounts, Cards &amp; Batch Payouts</div>
               </div>
               <div class="card-body" style="padding:16px">
                 <div class="form-grid">
@@ -336,6 +331,12 @@
                     <input type="password" id="st-monnify-sec" name="payment_monnify_secret_key"
                            value="{{ $paymentSettings['monnify']['secret_key'] }}" placeholder="Monnify Secret Key" autocomplete="off" />
                   </div>
+                  <div class="field full">
+                    <label for="st-monnify-src">Source Account Number (Disbursements / Transfers)</label>
+                    <input type="text" id="st-monnify-src" name="payment_monnify_source_account_number"
+                           value="{{ $paymentSettings['monnify']['source_account_number'] }}" placeholder="e.g. 10-digit Monnify Wallet / Settlement Account Number" />
+                    <div class="hint">Your funded source wallet/account number on Monnify from which bulk salary and vendor transfers will be debited.</div>
+                  </div>
                 </div>
                 <div class="hint mt-16">
                   <strong>Monnify Webhook URL:</strong> <code>{{ url('/api/payments/webhook/monnify') }}</code>
@@ -356,7 +357,7 @@
                     {{ strtoupper($paymentSettings['zainpay']['mode']) }} MODE
                   </span>
                 </div>
-                <div class="text-small text-muted">Supports Virtual Accounts, Wallets &amp; Card Processing</div>
+                <div class="text-small text-muted">Supports Virtual Accounts, Wallets &amp; Inter-bank Transfers</div>
               </div>
               <div class="card-body" style="padding:16px">
                 <div class="form-grid">
@@ -368,14 +369,19 @@
                     </select>
                   </div>
                   <div class="field">
-                    <label for="st-zainpay-box">Zainbox Code</label>
+                    <label for="st-zainpay-box">Zainbox Code <span class="req">*</span></label>
                     <input type="text" id="st-zainpay-box" name="payment_zainpay_zainbox_code"
                            value="{{ $paymentSettings['zainpay']['zainbox_code'] }}" placeholder="e.g. zn_box_..." />
                   </div>
-                  <div class="field full">
-                    <label for="st-zainpay-pub">Public Key / Bearer Token</label>
+                  <div class="field">
+                    <label for="st-zainpay-pub">API Token (Bearer Key) <span class="req">*</span></label>
                     <input type="password" id="st-zainpay-pub" name="payment_zainpay_public_key"
-                           value="{{ $paymentSettings['zainpay']['public_key'] }}" placeholder="Bearer token / Public Key" autocomplete="off" />
+                           value="{{ $paymentSettings['zainpay']['public_key'] }}" placeholder="Bearer token / Secret Key" autocomplete="off" />
+                  </div>
+                  <div class="field">
+                    <label for="st-zainpay-src">Wallet / Source Account Number</label>
+                    <input type="text" id="st-zainpay-src" name="payment_zainpay_source_account_number"
+                           value="{{ $paymentSettings['zainpay']['source_account_number'] }}" placeholder="Zainpay Source Wallet / Settlement Account" />
                   </div>
                 </div>
                 <div class="hint mt-16">

@@ -3,9 +3,12 @@
 namespace App\Services\Payment\Gateways;
 
 use App\Services\Payment\Contracts\PaymentGatewayInterface;
+use App\Services\Payment\DTOs\BulkTransferRequest;
+use App\Services\Payment\DTOs\BulkTransferResult;
 use App\Services\Payment\DTOs\PaymentInitRequest;
 use App\Services\Payment\DTOs\PaymentInitResult;
 use App\Services\Payment\DTOs\PaymentVerifyResult;
+use App\Services\Payment\DTOs\PayoutRecipient;
 use App\Services\Payment\PaymentApi\ZainpayApi;
 use App\Support\Settings;
 use Illuminate\Support\Facades\Log;
@@ -29,7 +32,7 @@ class ZainpayGateway implements PaymentGatewayInterface
             throw new Exception('Zainpay payment gateway is currently disabled.');
         }
 
-        $zainboxCode = Settings::string('payment.zainpay.zainbox_code', config('services.zainpay.zainbox_code', '')) ;
+        $zainboxCode = Settings::string('payment.zainpay.zainbox_code', config('services.zainpay.zainbox_code', ''));
         if (empty($zainboxCode)) {
             throw new Exception('Zainpay Zainbox Code is not configured in Payment Settings.');
         }
@@ -109,14 +112,14 @@ class ZainpayGateway implements PaymentGatewayInterface
             $signature = $signature[0];
         }
 
-        $publicKey = Settings::string('payment.zainpay.public_key', config('services.zainpay.public_key', ''));
+        $token = Settings::string('payment.zainpay.public_key', config('services.zainpay.public_key', ''));
 
-        if (!$signature || empty($publicKey)) {
-            Log::warning('Zainpay webhook received without signature or public key is missing.');
+        if (!$signature || empty($token)) {
+            Log::warning('Zainpay webhook received without signature or API token is missing.');
             return null;
         }
 
-        $expectedSignature = hash_hmac('sha256', $rawBody, $publicKey);
+        $expectedSignature = hash_hmac('sha256', $rawBody, $token);
 
         if (!hash_equals($expectedSignature, $signature)) {
             Log::warning('Zainpay webhook signature mismatch.');
@@ -136,6 +139,134 @@ class ZainpayGateway implements PaymentGatewayInterface
         } catch (\Throwable $e) {
             Log::error('Zainpay webhook verification failed for ref ' . $reference . ': ' . $e->getMessage());
             return null;
+        }
+    }
+
+    public function initiateTransfer(PayoutRecipient $recipient, ?string $otp = null): PaymentInitResult
+    {
+        if (!$this->isEnabled()) {
+            throw new Exception('Zainpay gateway is currently disabled.');
+        }
+
+        $zainboxCode = Settings::string('payment.zainpay.zainbox_code', '');
+        $sourceAccount = Settings::string('payment.zainpay.source_account_number', '');
+
+        if (empty($zainboxCode)) {
+            throw new Exception('Zainpay Zainbox Code is not configured.');
+        }
+
+        try {
+            $api = ZainpayApi::getInstance();
+
+            $payload = [
+                'destinationAccountNumber' => $recipient->accountNumber,
+                'destinationBankCode' => $recipient->bankCode,
+                'amount' => (string) round($recipient->amountMinor / 100, 2),
+                'narration' => $recipient->narration ?? 'Payroll Disbursement',
+                'sourceAccountNumber' => $sourceAccount,
+                'zainboxCode' => $zainboxCode,
+                'txnRef' => $recipient->reference,
+            ];
+
+            $response = $api->post('bank/funds/transfer', $payload);
+
+            if (isset($response['code']) && ($response['code'] === '00' || $response['code'] === 0)) {
+                return new PaymentInitResult(
+                    reference: $recipient->reference,
+                    redirectUrl: null,
+                    rawResponse: json_encode($response),
+                    success: true,
+                    message: $response['description'] ?? 'Transfer initiated successfully',
+                    data: $response['data'] ?? []
+                );
+            }
+
+            throw new Exception($response['description'] ?? 'Zainpay transfer failed');
+        } catch (\Throwable $e) {
+            Log::error('Zainpay transfer error: ' . $e->getMessage(), ['reference' => $recipient->reference]);
+            throw new Exception('Zainpay transfer failed: ' . $e->getMessage(), 0, $e);
+        }
+    }
+
+    public function initiateBulkTransfer(BulkTransferRequest $request): BulkTransferResult
+    {
+        if (!$this->isEnabled()) {
+            throw new Exception('Zainpay gateway is currently disabled.');
+        }
+
+        $zainboxCode = Settings::string('payment.zainpay.zainbox_code', '');
+        $sourceAccount = Settings::string('payment.zainpay.source_account_number', '');
+
+        if (empty($zainboxCode)) {
+            return BulkTransferResult::failed($request->batchReference, 'Zainpay Zainbox Code is not configured in settings.');
+        }
+
+        $itemResults = [];
+        $totalFeeMinor = 0;
+        $successCount = 0;
+        $failedCount = 0;
+
+        try {
+            $api = ZainpayApi::getInstance();
+
+            // Iterate sequential single transfers for each recipient in the batch
+            foreach ($request->recipients as $recipient) {
+                try {
+                    $payload = [
+                        'destinationAccountNumber' => $recipient->accountNumber,
+                        'destinationBankCode' => $recipient->bankCode,
+                        'amount' => (string) round($recipient->amountMinor / 100, 2),
+                        'narration' => $recipient->narration ?? $request->title,
+                        'sourceAccountNumber' => $sourceAccount,
+                        'zainboxCode' => $zainboxCode,
+                        'txnRef' => $recipient->reference,
+                    ];
+
+                    $response = $api->post('bank/funds/transfer', $payload);
+
+                    if (isset($response['code']) && ($response['code'] === '00' || $response['code'] === 0)) {
+                        $itemResults[$recipient->reference] = [
+                            'status' => 'successful',
+                            'gateway_reference' => $recipient->reference,
+                            'fee_minor' => 1200, // ₦12 Zainpay transfer fee per transaction
+                            'message' => $response['description'] ?? 'Transfer successful',
+                            'raw' => $response,
+                        ];
+                        $totalFeeMinor += 1200;
+                        $successCount++;
+                    } else {
+                        $itemResults[$recipient->reference] = [
+                            'status' => 'failed',
+                            'message' => $response['description'] ?? 'Transfer rejected by Zainpay',
+                            'raw' => $response,
+                        ];
+                        $failedCount++;
+                    }
+                } catch (\Throwable $e) {
+                    $itemResults[$recipient->reference] = [
+                        'status' => 'failed',
+                        'message' => $e->getMessage(),
+                    ];
+                    $failedCount++;
+                }
+            }
+
+            $batchStatus = ($successCount === count($request->recipients)) ? 'completed' : (($successCount > 0) ? 'partially_completed' : 'failed');
+
+            return new BulkTransferResult(
+                success: ($successCount > 0),
+                batchReference: $request->batchReference,
+                gatewayBatchReference: $request->batchReference,
+                status: $batchStatus,
+                message: "Disbursed {$successCount} of " . count($request->recipients) . " transfers via Zainpay.",
+                totalAmountMinor: $request->totalAmountMinor(),
+                totalFeeMinor: $totalFeeMinor,
+                itemResults: $itemResults,
+                rawResponse: ['success_count' => $successCount, 'failed_count' => $failedCount]
+            );
+        } catch (\Throwable $e) {
+            Log::error('Zainpay bulk disbursement error: ' . $e->getMessage(), ['batch' => $request->batchReference]);
+            return BulkTransferResult::failed($request->batchReference, $e->getMessage());
         }
     }
 }

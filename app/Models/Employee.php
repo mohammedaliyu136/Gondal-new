@@ -29,7 +29,8 @@ class Employee extends Model implements Scopeable
         'code', 'name', 'phone', 'email', 'department_id', 'position',
         'grade_level', 'employment_type', 'duty_station', 'line_manager_id',
         'joined_on', 'confirmed_on', 'gross_monthly_minor', 'bank_name',
-        'bank_account_masked', 'next_of_kin_name', 'next_of_kin_phone',
+        'bank_code', 'bank_account_number', 'bank_account_masked',
+        'bank_account_name', 'next_of_kin_name', 'next_of_kin_phone',
         'status', 'created_by_user_id',
     ];
 
@@ -90,6 +91,36 @@ class Employee extends Model implements Scopeable
     public function payslips(): HasMany
     {
         return $this->hasMany(Payslip::class)->latest('id');
+    }
+
+    public function salaryProfile(): HasOne
+    {
+        return $this->hasOne(EmployeeSalaryProfile::class);
+    }
+
+    public function staffLoans(): HasMany
+    {
+        return $this->hasMany(StaffLoan::class)->latest('disbursed_on');
+    }
+
+    public function activeLoans(): HasMany
+    {
+        return $this->hasMany(StaffLoan::class)->where('status', StaffLoan::STATUS_ACTIVE)->where('balance_minor', '>', 0);
+    }
+
+    public function commissions(): HasMany
+    {
+        return $this->hasMany(EmployeeCommission::class)->latest('earned_on');
+    }
+
+    public function overtimes(): HasMany
+    {
+        return $this->hasMany(EmployeeOvertime::class)->latest('worked_on');
+    }
+
+    public function fixedAllowances(): HasMany
+    {
+        return $this->hasMany(EmployeeFixedAllowance::class);
     }
 
     public function scopeOnPayroll(Builder $query): Builder

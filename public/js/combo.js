@@ -34,7 +34,7 @@
   function isPlaceholder(option) {
     var label = textOf(option);
 
-    return option.value === '' && (label === '' || /^[—–-]+$/.test(label));
+    return option.value === '' && (label === '' || /^[—–-]+$/.test(label) || /^select\b/i.test(label) || /^choose\b/i.test(label));
   }
 
   function enhance(select) {
@@ -201,7 +201,11 @@
 
     input.value = currentLabel();
 
-    input.addEventListener('focus', open);
+    input.addEventListener('focus', function () {
+      open();
+      // Auto-select text on focus so user can immediately type to replace without manually backspacing/deleting
+      this.select();
+    });
     input.addEventListener('input', function () {
       render(input.value);
       list.hidden = false;

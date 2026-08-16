@@ -15,7 +15,16 @@ class PaystackApi
 
     private function __construct()
     {
-        $this->secretKey = Settings::string('payment.paystack.secret_key', config('services.paystack.secret_key', ''));
+        $configuredSecret = Settings::string('payment.paystack.secret_key', config('services.paystack.secret_key', ''));
+        $configuredPublic = Settings::string('payment.paystack.public_key', config('services.paystack.public_key', ''));
+
+        // Auto-detect if public and secret keys were swapped in settings
+        if (str_starts_with($configuredSecret, 'pk_') && str_starts_with($configuredPublic, 'sk_')) {
+            $this->secretKey = $configuredPublic;
+        } else {
+            $this->secretKey = $configuredSecret;
+        }
+
         $this->baseUrl = rtrim(Settings::string('payment.paystack.base_url', config('services.paystack.base_url', 'https://api.paystack.co')), '/');
     }
 
@@ -40,7 +49,7 @@ class PaystackApi
 
         $url = $this->baseUrl . '/' . ltrim($endpoint, '/');
 
-        $response = Http::withHeaders([
+        $response = Http::withoutVerifying()->withHeaders([
             'Authorization' => 'Bearer ' . $this->secretKey,
             'Accept' => 'application/json',
             'Content-Type' => 'application/json',
@@ -61,7 +70,7 @@ class PaystackApi
 
         $url = $this->baseUrl . '/' . ltrim($endpoint, '/');
 
-        $response = Http::withHeaders([
+        $response = Http::withoutVerifying()->withHeaders([
             'Authorization' => 'Bearer ' . $this->secretKey,
             'Accept' => 'application/json',
         ])->timeout(30)->get($url, $query);

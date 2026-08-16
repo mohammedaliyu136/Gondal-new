@@ -28,6 +28,13 @@
   </div>
 @endif
 
+@if (session('error'))
+  <div class="alert danger mb-16">
+    <span>&#10060;</span>
+    <div>{{ session('error') }}</div>
+  </div>
+@endif
+
 @if ($errors->any())
   <div class="alert danger mb-16">
     <span>&#10060;</span>
