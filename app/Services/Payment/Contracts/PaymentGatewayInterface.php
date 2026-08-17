@@ -45,4 +45,21 @@ interface PaymentGatewayInterface
      * Initiate a batch/bulk payout to multiple bank accounts.
      */
     public function initiateBulkTransfer(BulkTransferRequest $request): BulkTransferResult;
+
+    /**
+     * Authorize and finalize a pending batch transfer using an OTP / 2FA code.
+     */
+    public function validateBatchOtp(string $batchReference, string $otp, ?string $gatewayBatchReference = null): BulkTransferResult;
+
+    /**
+     * Resend authorization OTP/2FA code for a pending bulk transfer batch.
+     */
+    public function resendBatchOtp(string $batchReference, ?string $gatewayBatchReference = null): array;
+
+    /**
+     * Verify and synchronize live settlement status for a bulk transfer batch and its line items.
+     *
+     * @param array<int, array{reference: string, account_number?: string, amount_minor?: int, gateway_reference?: string, status?: string}> $items
+     */
+    public function verifyBatch(string $batchReference, ?string $gatewayBatchReference = null, array $items = []): BulkTransferResult;
 }

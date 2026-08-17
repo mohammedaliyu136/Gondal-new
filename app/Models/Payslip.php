@@ -22,9 +22,12 @@ class Payslip extends Model implements Scopeable
     use AppliesDataScope;
     use SoftDeletes;
 
+    public const STATUS_PENDING = 'pending';
+    public const STATUS_PAID = 'paid';
+
     protected $fillable = [
         'payroll_run_id', 'employee_id', 'reference', 'gross_minor',
-        'deductions_minor', 'net_minor', 'breakdown', 'ytd',
+        'deductions_minor', 'net_minor', 'status', 'paid_at', 'breakdown', 'ytd',
     ];
 
     protected function casts(): array
@@ -33,6 +36,7 @@ class Payslip extends Model implements Scopeable
             'gross_minor' => 'integer',
             'deductions_minor' => 'integer',
             'net_minor' => 'integer',
+            'paid_at' => 'datetime',
             'breakdown' => 'array',
             'ytd' => 'array',
         ];

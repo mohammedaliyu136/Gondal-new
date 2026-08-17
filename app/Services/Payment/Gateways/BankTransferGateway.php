@@ -84,7 +84,50 @@ class BankTransferGateway implements PaymentGatewayInterface
             totalAmountMinor: $request->totalAmountMinor(),
             totalFeeMinor: 0,
             itemResults: $itemResults,
-            rawResponse: ['method' => 'direct_bank_settlement']
+            rawResponse: ['method' => 'direct_bank_settlement'],
+            gatewayStatus: 'SETTLED',
+        );
+    }
+
+    public function validateBatchOtp(string $batchReference, string $otp, ?string $gatewayBatchReference = null): BulkTransferResult
+    {
+        return BulkTransferResult::successful(
+            batchReference: $batchReference,
+            gatewayBatchReference: $gatewayBatchReference ?: $batchReference,
+            status: 'completed',
+            message: 'Direct bank settlement completed',
+            gatewayStatus: 'SETTLED',
+        );
+    }
+
+    public function resendBatchOtp(string $batchReference, ?string $gatewayBatchReference = null): array
+    {
+        return ['status' => true, 'message' => 'OTP not required for direct bank settlement'];
+    }
+
+    public function verifyBatch(string $batchReference, ?string $gatewayBatchReference = null, array $items = []): BulkTransferResult
+    {
+        $itemResults = [];
+        foreach ($items as $item) {
+            $ref = $item['reference'] ?? '';
+            $itemResults[$ref] = [
+                'status' => 'successful',
+                'gateway_reference' => $item['gateway_reference'] ?? ('EFT-' . strtoupper(substr(bin2hex(random_bytes(4)), 0, 8))),
+                'gateway_status' => 'SETTLED',
+                'fee_minor' => 0,
+                'message' => 'Settled via direct bank transfer',
+            ];
+        }
+
+        return BulkTransferResult::successful(
+            batchReference: $batchReference,
+            gatewayBatchReference: $gatewayBatchReference ?: $batchReference,
+            status: 'completed',
+            message: 'Direct bank settlement verified',
+            totalAmountMinor: 0,
+            totalFeeMinor: 0,
+            itemResults: $itemResults,
+            gatewayStatus: 'SETTLED',
         );
     }
 }

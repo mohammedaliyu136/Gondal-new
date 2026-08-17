@@ -296,6 +296,15 @@ class PayrollController extends Controller
             'Payroll Batch Details'
         );
 
+        // Auto-synchronize live status with payment gateway on batch detail view visit
+        if (in_array($batch->gateway, ['monnify', 'paystack', 'zainpay'])) {
+            try {
+                $batch = $this->payrollPaymentService->syncBatchStatus($batch, $this->currentUser());
+            } catch (\Throwable $e) {
+                Log::info('Auto-sync batch status on visit note: ' . $e->getMessage());
+            }
+        }
+
         $batch->load(['initiatedBy', 'authorizedBy', 'source']);
         $payrollRun->load(['payslips.employee.department']);
 
@@ -335,24 +344,62 @@ class PayrollController extends Controller
         ]);
 
         try {
-            $this->payrollPaymentService->authorizeBatchOtp($batch, $validated['otp'], $this->currentUser());
+            $syncedBatch = $this->payrollPaymentService->authorizeBatchOtp($batch, $validated['otp'], $this->currentUser());
 
-            return redirect()->route('payroll.payment', $payrollRun)->with('success', sprintf(
-                'Payment batch %s has been successfully authorized and completed.',
-                $batch->batch_reference
-            ));
+            $msg = sprintf(
+                'Payment batch %s has been authorized and synchronized (%d successful, %d failed).',
+                $batch->batch_reference,
+                $syncedBatch->successful_items_count,
+                $syncedBatch->failed_items_count
+            );
+
+            if ($request->headers->get('referer') && str_contains($request->headers->get('referer'), '/batches/')) {
+                return redirect()->route('payroll.batches.show', [$payrollRun, $batch])->with('success', $msg);
+            }
+
+            return redirect()->route('payroll.payment', $payrollRun)->with('success', $msg);
         } catch (\Throwable $e) {
+            if ($request->headers->get('referer') && str_contains($request->headers->get('referer'), '/batches/')) {
+                return redirect()->route('payroll.batches.show', [$payrollRun, $batch])->with('error', $e->getMessage());
+            }
+
             return redirect()->route('payroll.payment', $payrollRun)->with('error', $e->getMessage());
         }
     }
 
     /**
-     * Re-query live payment gateway to sync batch settlement status.
+     * Resend authorization OTP/2FA code via Monnify or Paystack.
      */
-    public function syncBatchStatus(PayrollRun $payrollRun, PaymentBatch $batch): RedirectResponse
+    public function resendBatchOtp(Request $request, PayrollRun $payrollRun, PaymentBatch $batch): RedirectResponse
     {
         $this->authorizeAnyAccess(
-            ['payments.disbursements.authorize', 'hr.payroll.approve', 'payments.disbursements.initialize'],
+            ['payments.disbursements.authorize', 'hr.payroll.approve'],
+            $payrollRun,
+            'Resend Batch OTP'
+        );
+
+        try {
+            $this->payrollPaymentService->resendBatchOtp($batch, $this->currentUser());
+
+            $msg = sprintf('A new authorization OTP code has been dispatched by %s.', ucfirst($batch->gateway));
+
+            if ($request->headers->get('referer') && str_contains($request->headers->get('referer'), '/batches/')) {
+                return redirect()->route('payroll.batches.show', [$payrollRun, $batch])->with('success', $msg);
+            }
+
+            return redirect()->route('payroll.payment', $payrollRun)->with('success', $msg);
+        } catch (\Throwable $e) {
+            return redirect()->back()->with('error', $e->getMessage());
+        }
+    }
+
+    /**
+     * Re-query live payment gateway to sync batch settlement status and update payslips.
+     */
+    public function syncBatchStatus(Request $request, PayrollRun $payrollRun, PaymentBatch $batch): RedirectResponse
+    {
+        $this->authorizeAnyAccess(
+            ['payments.disbursements.authorize', 'hr.payroll.approve', 'payments.disbursements.initialize', 'hr.payroll.view'],
             $payrollRun,
             'Sync Batch Status'
         );
@@ -360,42 +407,24 @@ class PayrollController extends Controller
         try {
             $this->payrollPaymentService->syncBatchStatus($batch, $this->currentUser());
 
-            return redirect()->route('payroll.payment', $payrollRun)->with('success', sprintf(
-                'Payment batch %s status verified with %s (Current Status: %s).',
-                $batch->batch_reference,
-                ucfirst($batch->gateway),
-                ucfirst($batch->status)
-            ));
-        } catch (\Throwable $e) {
-            return redirect()->route('payroll.payment', $payrollRun)->with('error', $e->getMessage());
-        }
-    }
-
-    /**
-     * Revalidate and refresh settlement status for all batch items directly from gateway
-     * without modifying the source payroll run or payslips.
-     */
-    public function revalidateBatchItems(PayrollRun $payrollRun, PaymentBatch $batch): RedirectResponse
-    {
-        $this->authorizeAnyAccess(
-            ['hr.payroll.view', 'payments.disbursements.view', 'payments.disbursements.initialize'],
-            $payrollRun,
-            'Revalidate Batch Items'
-        );
-
-        try {
-            $this->payrollPaymentService->revalidateBatchItems($batch, $this->currentUser());
-
-            return redirect()->route('payroll.batches.show', [$payrollRun, $batch])->with('success', sprintf(
-                'Batch %s items revalidated from %s (%d Successful, %d Failed, Gateway Status: %s).',
+            $message = sprintf(
+                'Payment batch %s status verified with %s: %d Successful, %d Failed (Gateway: %s, Batch Status: %s).',
                 $batch->batch_reference,
                 ucfirst($batch->gateway),
                 $batch->successful_items_count,
                 $batch->failed_items_count,
-                $batch->gateway_status ?: 'UPDATED'
-            ));
+                $batch->gateway_status ?: 'UPDATED',
+                ucfirst(str_replace('_', ' ', $batch->status))
+            );
+
+            // Redirect back to referring page (batch detail or payment overview)
+            if ($request->headers->get('referer') && str_contains($request->headers->get('referer'), '/batches/')) {
+                return redirect()->route('payroll.batches.show', [$payrollRun, $batch])->with('success', $message);
+            }
+
+            return redirect()->route('payroll.payment', $payrollRun)->with('success', $message);
         } catch (\Throwable $e) {
-            return redirect()->route('payroll.batches.show', [$payrollRun, $batch])->with('error', $e->getMessage());
+            return redirect()->back()->with('error', $e->getMessage());
         }
     }
 

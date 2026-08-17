@@ -27,20 +27,19 @@
     <div class="page-actions">
       <a href="{{ route('payroll.payment', $run) }}" class="btn btn-outline">&larr; Back to Payment Overview</a>
       @if (in_array($batch->gateway, ['monnify', 'paystack']))
-        <form method="POST" action="{{ route('payroll.batches.revalidate', [$run, $batch]) }}" style="display:inline">
+        <form method="POST" action="{{ route('payroll.batches.sync', [$run, $batch]) }}" style="display:inline">
           @csrf
-          <button type="submit" class="btn btn-ghost" title="Query gateway to revalidate all individual item settlement statuses without changing payslips">
-            &#8635; Revalidate Items
+          <button type="submit" class="btn btn-ghost" title="Re-query live gateway to synchronize batch, items, and payslip settlement records">
+            &#8635; Sync Gateway Status
           </button>
         </form>
       @endif
-      @if (!in_array($batch->status, ['completed', 'settled']) && in_array($batch->gateway, ['monnify', 'paystack']))
-        <form method="POST" action="{{ route('payroll.batches.sync', [$run, $batch]) }}" style="display:inline">
-          @csrf
-          <button type="submit" class="btn btn-ghost" title="Re-query live status from gateway">
-            &#8635; Sync Batch
-          </button>
-        </form>
+      @php
+        $isAwaitingOtp = !in_array($batch->status, ['completed', 'settled', 'failed', 'cancelled'])
+          && !in_array(strtoupper($batch->gateway_status ?? ''), ['EXPIRED', 'FAILED', 'SUCCESS', 'COMPLETED', 'SETTLED', 'CANCELLED', 'REJECTED'])
+          && in_array($batch->gateway, ['monnify', 'paystack']);
+      @endphp
+      @if ($isAwaitingOtp)
         <a href="#modal-otp-{{ $batch->id }}" class="btn btn-primary">
           Enter OTP &rarr;
         </a>
@@ -189,6 +188,13 @@
                   <span class="badge {{ ['successful' => 'success', 'processing' => 'warning', 'pending' => 'info', 'failed' => 'danger'][$item->status] ?? 'muted' }}">
                     {{ ucfirst($item->status) }}
                   </span>
+                  @if ($payslip)
+                    <div class="cell-sub" style="margin-top:3px">
+                      <span class="badge {{ $payslip->status === 'paid' ? 'success' : 'muted' }} plain" style="font-size:0.7rem;padding:1px 5px">
+                        Payslip: {{ ucfirst($payslip->status) }}
+                      </span>
+                    </div>
+                  @endif
                 </td>
                 <td style="max-width:260px">
                   @if ($item->status === 'failed' || $item->failure_reason)
@@ -229,7 +235,7 @@
   </div>
 
   {{-- Authorization / OTP Modal --}}
-  @if (!in_array($batch->status, ['completed', 'settled']) && in_array($batch->gateway, ['monnify', 'paystack']))
+  @if ($isAwaitingOtp)
     <div id="modal-otp-{{ $batch->id }}" class="modal">
       <a href="#" class="modal-overlay"></a>
       <div class="modal-dialog narrow">
@@ -258,12 +264,63 @@
               <div class="hint">Sent by {{ ucfirst($batch->gateway) }} gateway.</div>
             </div>
           </div>
-          <div class="modal-foot">
-            <a href="#" class="btn btn-outline">Cancel</a>
-            <button type="submit" class="btn btn-primary">Submit OTP &amp; Finalize &rarr;</button>
+          <div class="modal-foot" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+            <div>
+              <button type="button" id="resend-otp-btn-{{ $batch->id }}" class="btn btn-ghost btn-sm" onclick="resendBatchOtp('{{ $batch->id }}', '{{ route('payroll.batches.resend-otp', [$run, $batch]) }}')" disabled>
+                &#8635; Resend OTP (<span id="resend-timer-{{ $batch->id }}">60</span>s)
+              </button>
+            </div>
+            <div style="display:flex;gap:8px">
+              <a href="#" class="btn btn-outline">Cancel</a>
+              <button type="submit" class="btn btn-primary">Submit OTP &amp; Finalize &rarr;</button>
+            </div>
           </div>
         </form>
       </div>
     </div>
+
+    <script>
+      (function() {
+        var batchId = '{{ $batch->id }}';
+        var remaining = 60;
+        var btn = document.getElementById('resend-otp-btn-' + batchId);
+        var timerSpan = document.getElementById('resend-timer-' + batchId);
+
+        function tick() {
+          if (!btn || !timerSpan) return;
+          remaining--;
+          if (remaining <= 0) {
+            btn.disabled = false;
+            btn.innerHTML = '&#8635; Resend OTP';
+          } else {
+            btn.disabled = true;
+            btn.innerHTML = '&#8635; Resend OTP (' + remaining + 's)';
+            setTimeout(tick, 1000);
+          }
+        }
+        setTimeout(tick, 1000);
+
+        window.resendBatchOtp = function(id, url) {
+          var resendBtn = document.getElementById('resend-otp-btn-' + id);
+          if (!resendBtn || resendBtn.disabled) return;
+
+          resendBtn.disabled = true;
+          resendBtn.innerHTML = '&#8635; Requesting new OTP...';
+
+          var form = document.createElement('form');
+          form.method = 'POST';
+          form.action = url;
+
+          var csrf = document.createElement('input');
+          csrf.type = 'hidden';
+          csrf.name = '_token';
+          csrf.value = '{{ csrf_token() }}';
+          form.appendChild(csrf);
+
+          document.body.appendChild(form);
+          form.submit();
+        };
+      })();
+    </script>
   @endif
 @endsection

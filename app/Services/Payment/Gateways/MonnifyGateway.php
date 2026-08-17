@@ -230,13 +230,14 @@ class MonnifyGateway implements PaymentGatewayInterface
 
             if (isset($response['requestSuccessful']) && $response['requestSuccessful'] === true) {
                 $body = $response['responseBody'] ?? [];
-                $batchId = $body['batchReference'] ?? $request->batchReference;
+                $batchId = $body['transactionBatchReference'] ?? ($body['batchReference'] ?? $request->batchReference);
 
                 // If OTP was provided and batch requires validation
                 if ($request->otp !== null && !empty($request->otp)) {
                     try {
                         $api->post('api/v2/disbursements/batch/validate-otp', [
-                            'reference' => $batchId,
+                            'batchReference' => $body['batchReference'] ?? $request->batchReference,
+                            'reference' => $body['batchReference'] ?? $request->batchReference,
                             'authorizationCode' => $request->otp,
                         ]);
                     } catch (\Throwable $e) {
@@ -244,9 +245,12 @@ class MonnifyGateway implements PaymentGatewayInterface
                     }
                 }
 
-                $transactions = $body['transactionList'] ?? ($body['transactions'] ?? []);
-                $allSuccess = true;
-                $hasSuccess = false;
+                $gwStatus = strtoupper($body['batchStatus'] ?? ($body['status'] ?? 'PENDING_AUTHORIZATION'));
+                $isCompleted = ($gwStatus === 'SUCCESS' || $gwStatus === 'COMPLETED');
+                $batchStatus = $isCompleted ? 'completed' : 'processing';
+                if (isset($body['totalFee'])) {
+                    $totalFeeMinor = (int) round(((float) $body['totalFee']) * 100);
+                }
 
                 foreach ($request->recipients as $recipient) {
                     $ref = $recipient->reference;
@@ -261,22 +265,22 @@ class MonnifyGateway implements PaymentGatewayInterface
                         }
                     }
 
-                    $txStatus = strtoupper($matchedTx['status'] ?? 'PENDING');
+                    $txStatus = strtoupper($matchedTx['status'] ?? ($isCompleted ? 'SUCCESS' : 'PENDING'));
                     $txMsg = $matchedTx['responseMessage'] ?? ($matchedTx['message'] ?? ($response['responseMessage'] ?? 'Dispatched to Monnify'));
-                    $isTxSuccess = ($txStatus === 'SUCCESS' || $txStatus === 'PENDING' || $txStatus === 'IN_PROGRESS' || $txStatus === 'PAID');
+                    $isTxSuccess = ($txStatus === 'SUCCESS' || $txStatus === 'PAID');
+                    $isTxFailed = ($txStatus === 'FAILED' || $txStatus === 'REVERSED');
 
                     if ($isTxSuccess) {
                         $itemResults[$ref] = [
                             'status' => 'successful',
                             'gateway_status' => $txStatus,
                             'gateway_reference' => (string) ($matchedTx['transactionReference'] ?? ($matchedTx['reference'] ?? $batchId)),
-                            'fee_minor' => 1500, // ₦15 Monnify fee per line
+                            'fee_minor' => 1500,
                             'message' => $txMsg,
                             'raw' => $matchedTx ?? ['status' => $txStatus, 'message' => $txMsg],
                         ];
-                        $totalFeeMinor += 1500;
                         $hasSuccess = true;
-                    } else {
+                    } elseif ($isTxFailed) {
                         $allSuccess = false;
                         $itemResults[$ref] = [
                             'status' => 'failed',
@@ -286,11 +290,17 @@ class MonnifyGateway implements PaymentGatewayInterface
                             'message' => $txMsg,
                             'raw' => $matchedTx ?? ['status' => $txStatus, 'message' => $txMsg],
                         ];
+                    } else {
+                        $itemResults[$ref] = [
+                            'status' => 'processing',
+                            'gateway_status' => $txStatus,
+                            'gateway_reference' => (string) ($matchedTx['transactionReference'] ?? ($matchedTx['reference'] ?? $batchId)),
+                            'fee_minor' => 1500,
+                            'message' => $txMsg,
+                            'raw' => $matchedTx ?? ['status' => $txStatus, 'message' => $txMsg],
+                        ];
                     }
                 }
-
-                $gwStatus = strtoupper($body['status'] ?? 'PENDING_AUTHORIZATION');
-                $batchStatus = ($gwStatus === 'SUCCESS' || $gwStatus === 'COMPLETED') ? 'completed' : 'processing';
 
                 return BulkTransferResult::successful(
                     batchReference: $request->batchReference,
@@ -310,5 +320,157 @@ class MonnifyGateway implements PaymentGatewayInterface
             Log::error('Monnify bulk transfer error: ' . $e->getMessage(), ['batch' => $request->batchReference]);
             return BulkTransferResult::failed($request->batchReference, $e->getMessage());
         }
+    }
+
+    /**
+     * Authorize and validate an OTP/2FA code for a pending Monnify bulk transfer batch.
+     */
+    public function validateBatchOtp(string $batchReference, string $otp, ?string $gatewayBatchReference = null): BulkTransferResult
+    {
+        $api = MonnifyApi::getInstance();
+        $response = $api->post('api/v2/disbursements/batch/validate-otp', [
+            'batchReference' => $batchReference,
+            'reference' => $batchReference,
+            'authorizationCode' => $otp,
+        ]);
+
+        if (!isset($response['requestSuccessful']) || $response['requestSuccessful'] !== true) {
+            $msg = $response['responseMessage'] ?? 'Invalid Monnify authorization code';
+            throw new Exception($msg);
+        }
+
+        return BulkTransferResult::successful(
+            batchReference: $batchReference,
+            gatewayBatchReference: $gatewayBatchReference ?: $batchReference,
+            status: 'completed',
+            message: $response['responseMessage'] ?? 'Batch authorization successful',
+            rawResponse: $response,
+            gatewayStatus: 'SUCCESS',
+        );
+    }
+
+    /**
+     * Resend authorization OTP code for a pending Monnify bulk transfer batch.
+     */
+    public function resendBatchOtp(string $batchReference, ?string $gatewayBatchReference = null): array
+    {
+        $api = MonnifyApi::getInstance();
+        $response = $api->post('api/v2/disbursements/batch/resend-otp', [
+            'batchReference' => $batchReference,
+            'reference' => $batchReference,
+        ]);
+
+        if (!isset($response['requestSuccessful']) || $response['requestSuccessful'] !== true) {
+            $msg = $response['responseMessage'] ?? 'Failed to resend Monnify OTP';
+            throw new Exception($msg);
+        }
+
+        return $response;
+    }
+
+    /**
+     * Verify and synchronize live settlement status for a Monnify bulk transfer batch and its line items.
+     *
+     * @param array<int, array{reference: string, account_number?: string, amount_minor?: int, gateway_reference?: string, status?: string}> $items
+     */
+    public function verifyBatch(string $batchReference, ?string $gatewayBatchReference = null, array $items = []): BulkTransferResult
+    {
+        $api = MonnifyApi::getInstance();
+        $response = $api->get('api/v2/disbursements/batch/summary', [
+            'reference' => $batchReference,
+        ]);
+
+        if (!isset($response['requestSuccessful']) || $response['requestSuccessful'] !== true) {
+            return BulkTransferResult::failed($batchReference, $response['responseMessage'] ?? 'Failed to fetch Monnify batch summary', $response);
+        }
+
+        $body = $response['responseBody'] ?? [];
+        $status = strtoupper($body['batchStatus'] ?? ($body['status'] ?? 'PENDING'));
+        $txList = $body['transactionList'] ?? ($body['transactions'] ?? []);
+        $isBatchExpiredOrFailed = in_array($status, ['EXPIRED', 'FAILED', 'CANCELLED', 'REJECTED']);
+
+        $itemResults = [];
+        $successCount = 0;
+        $failedCount = 0;
+        $totalFeeMinor = isset($body['totalFee']) ? (int) round(((float) $body['totalFee']) * 100) : 0;
+        $totalAmountMinor = isset($body['totalAmount']) ? (int) round(((float) $body['totalAmount']) * 100) : 0;
+
+        foreach ($items as $item) {
+            $ref = $item['reference'] ?? '';
+            $accountNumber = $item['account_number'] ?? '';
+            $matchedTx = null;
+
+            if (is_array($txList)) {
+                foreach ($txList as $tx) {
+                    if (is_array($tx) && (($tx['reference'] ?? null) === $ref || ($tx['destinationAccountNumber'] ?? null) === $accountNumber)) {
+                        $matchedTx = $tx;
+                        break;
+                    }
+                }
+            }
+
+            $defaultItemStatus = ($status === 'SUCCESS' || $status === 'COMPLETED') ? 'SUCCESS' : ($isBatchExpiredOrFailed ? $status : 'PENDING');
+            $txStatus = strtoupper($matchedTx['status'] ?? $defaultItemStatus);
+            $txMsg = $matchedTx['responseMessage'] ?? ($matchedTx['message'] ?? null);
+            $isItemSuccess = ($txStatus === 'SUCCESS' || $txStatus === 'PAID');
+            $isItemFailed = ($txStatus === 'FAILED' || $txStatus === 'REVERSED' || $isBatchExpiredOrFailed);
+
+            if ($isItemSuccess) {
+                $successCount++;
+                $itemResults[$ref] = [
+                    'status' => 'successful',
+                    'gateway_reference' => $matchedTx['transactionReference'] ?? ($item['gateway_reference'] ?? $gatewayBatchReference),
+                    'gateway_status' => $txStatus,
+                    'fee_minor' => 1500,
+                    'message' => $txMsg,
+                    'raw' => $matchedTx ?? ['status' => $txStatus, 'message' => $txMsg],
+                ];
+            } elseif ($isItemFailed) {
+                $failedCount++;
+                $itemResults[$ref] = [
+                    'status' => 'failed',
+                    'gateway_reference' => $matchedTx['transactionReference'] ?? ($item['gateway_reference'] ?? $gatewayBatchReference),
+                    'gateway_status' => $txStatus ?: $status,
+                    'fee_minor' => 0,
+                    'message' => $txMsg ?: ($isBatchExpiredOrFailed ? "Batch {$status} at Monnify (Authorization window closed)" : 'Transaction failed at Monnify'),
+                    'raw' => $matchedTx ?? ['status' => $txStatus, 'message' => $txMsg],
+                ];
+            } else {
+                $prevItemStatus = $item['status'] ?? 'processing';
+                if ($prevItemStatus === 'successful') {
+                    $successCount++;
+                } elseif ($prevItemStatus === 'failed') {
+                    $failedCount++;
+                }
+
+                $itemResults[$ref] = [
+                    'status' => $prevItemStatus,
+                    'gateway_reference' => $matchedTx['transactionReference'] ?? ($item['gateway_reference'] ?? $gatewayBatchReference),
+                    'gateway_status' => $txStatus,
+                    'fee_minor' => 1500,
+                    'message' => $txMsg,
+                    'raw' => $matchedTx ?? ['status' => $txStatus, 'message' => $txMsg],
+                ];
+            }
+        }
+
+        $totalItems = count($items);
+        $batchStatus = ($failedCount === 0 && $successCount === $totalItems && $totalItems > 0 && ($status === 'SUCCESS' || $status === 'COMPLETED'))
+            ? 'completed'
+            : (($successCount > 0 && $failedCount > 0)
+                ? 'partially_completed'
+                : (($failedCount === $totalItems && $totalItems > 0) ? 'failed' : 'processing'));
+
+        return BulkTransferResult::successful(
+            batchReference: $batchReference,
+            gatewayBatchReference: $gatewayBatchReference ?: $batchReference,
+            status: $batchStatus,
+            message: "Monnify batch status: {$status} ({$successCount} successful, {$failedCount} failed)",
+            totalAmountMinor: $totalAmountMinor,
+            totalFeeMinor: $totalFeeMinor,
+            itemResults: $itemResults,
+            rawResponse: $response,
+            gatewayStatus: $status,
+        );
     }
 }

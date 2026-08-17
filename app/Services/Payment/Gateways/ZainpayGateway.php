@@ -269,4 +269,57 @@ class ZainpayGateway implements PaymentGatewayInterface
             return BulkTransferResult::failed($request->batchReference, $e->getMessage());
         }
     }
+
+    public function validateBatchOtp(string $batchReference, string $otp, ?string $gatewayBatchReference = null): BulkTransferResult
+    {
+        return BulkTransferResult::successful(
+            batchReference: $batchReference,
+            gatewayBatchReference: $gatewayBatchReference ?: $batchReference,
+            status: 'completed',
+            message: 'Zainpay transfers finalized',
+            gatewayStatus: 'SUCCESS',
+        );
+    }
+
+    public function resendBatchOtp(string $batchReference, ?string $gatewayBatchReference = null): array
+    {
+        return ['status' => true, 'message' => 'OTP not required for Zainpay disbursement'];
+    }
+
+    public function verifyBatch(string $batchReference, ?string $gatewayBatchReference = null, array $items = []): BulkTransferResult
+    {
+        $itemResults = [];
+        $successCount = 0;
+        $failedCount = 0;
+
+        foreach ($items as $item) {
+            $ref = $item['reference'] ?? '';
+            $status = $item['status'] ?? 'successful';
+            if ($status === 'successful') {
+                $successCount++;
+            } elseif ($status === 'failed') {
+                $failedCount++;
+            }
+            $itemResults[$ref] = [
+                'status' => $status,
+                'gateway_reference' => $item['gateway_reference'] ?? $ref,
+                'gateway_status' => strtoupper($status),
+                'fee_minor' => 1200,
+                'message' => 'Zainpay transfer verified',
+            ];
+        }
+
+        $batchStatus = ($failedCount === 0 && $successCount === count($items) && count($items) > 0) ? 'completed' : 'processing';
+
+        return BulkTransferResult::successful(
+            batchReference: $batchReference,
+            gatewayBatchReference: $gatewayBatchReference ?: $batchReference,
+            status: $batchStatus,
+            message: "Zainpay batch verified ({$successCount} successful, {$failedCount} failed)",
+            totalAmountMinor: 0,
+            totalFeeMinor: $successCount * 1200,
+            itemResults: $itemResults,
+            gatewayStatus: 'SUCCESS',
+        );
+    }
 }

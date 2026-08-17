@@ -587,12 +587,12 @@ Route::middleware(['auth', 'session.authenticate', 'account.usable', 'session.to
         ->middleware('permission:hr.payroll.approve')->name('payroll.disburse');
     Route::get('/payroll/{payrollRun}/batches/{batch}', [PayrollController::class, 'batch'])
         ->middleware('permission:hr.payroll.view')->name('payroll.batches.show');
-    Route::post('/payroll/{payrollRun}/batches/{batch}/revalidate', [PayrollController::class, 'revalidateBatchItems'])
-        ->middleware('permission:hr.payroll.view')->name('payroll.batches.revalidate');
     Route::post('/payroll/{payrollRun}/batches/{batch}/otp', [PayrollController::class, 'validateBatchOtp'])
         ->middleware('permission:hr.payroll.approve')->name('payroll.batches.otp');
+    Route::post('/payroll/{payrollRun}/batches/{batch}/resend-otp', [PayrollController::class, 'resendBatchOtp'])
+        ->middleware('permission:hr.payroll.approve|payments.disbursements.authorize')->name('payroll.batches.resend-otp');
     Route::post('/payroll/{payrollRun}/batches/{batch}/sync', [PayrollController::class, 'syncBatchStatus'])
-        ->middleware('permission:hr.payroll.approve')->name('payroll.batches.sync');
+        ->middleware('permission:hr.payroll.view|payments.disbursements.initialize|hr.payroll.approve')->name('payroll.batches.sync');
 
     // Draft Payslip Adjustments
     Route::post('/payroll/payslips/{payslip}/recalculate', [PayrollController::class, 'recalculatePayslip'])

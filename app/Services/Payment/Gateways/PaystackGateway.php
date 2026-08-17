@@ -284,7 +284,135 @@ class PaystackGateway implements PaymentGatewayInterface
                 $bulkPayload['otp'] = $request->otp;
             }
 
-            $bulkResponse = $api->post('transfer/bulk', $bulkPayload);
+            $bulkResponse = null;
+            $isOtpRequiredError = false;
+
+            try {
+                $bulkResponse = $api->post('transfer/bulk', $bulkPayload);
+            } catch (\Throwable $bulkEx) {
+                $bulkErrMsg = strtolower($bulkEx->getMessage());
+                if (
+                    str_contains($bulkErrMsg, 'disable the otp requirement') ||
+                    str_contains($bulkErrMsg, 'otp requirement') ||
+                    str_contains($bulkErrMsg, 'otp is enabled')
+                ) {
+                    $isOtpRequiredError = true;
+                } else {
+                    throw $bulkEx;
+                }
+            }
+
+            // If OTP is required on Paystack, bulk transfer endpoint is blocked by Paystack.
+            // We initiate via standard single transfer endpoint so Paystack generates the OTP.
+            if ($isOtpRequiredError || (isset($bulkResponse['message']) && str_contains(strtolower($bulkResponse['message']), 'disable the otp requirement'))) {
+                Log::info('Paystack OTP is enabled — falling back to single transfers for OTP authorization.', ['batch' => $request->batchReference]);
+
+                $allSuccess = true;
+                $hasPendingOtp = false;
+                $batchCode = null;
+
+                foreach ($transfers as $t) {
+                    $ref = $t['reference'];
+                    try {
+                        $trfPayload = [
+                            'source' => 'balance',
+                            'amount' => $t['amount'],
+                            'recipient' => $t['recipient'],
+                            'reason' => $t['reason'] ?? $request->title,
+                            'reference' => $ref,
+                        ];
+                        if ($request->otp !== null) {
+                            $trfPayload['otp'] = $request->otp;
+                        }
+
+                        $trfRes = $api->post('transfer', $trfPayload);
+
+                        if (isset($trfRes['status']) && $trfRes['status'] === true) {
+                            $data = $trfRes['data'] ?? [];
+                            $trfCode = $data['transfer_code'] ?? ($data['id'] ?? $ref);
+                            $rawStatus = strtolower($data['status'] ?? 'processing');
+
+                            if (!$batchCode) {
+                                $batchCode = (string) $trfCode;
+                            }
+
+                            if ($rawStatus === 'success' || $rawStatus === 'successful') {
+                                $itemResults[$ref] = [
+                                    'status' => 'successful',
+                                    'gateway_status' => 'SUCCESS',
+                                    'gateway_reference' => (string) $trfCode,
+                                    'fee_minor' => 1000,
+                                    'message' => $trfRes['message'] ?? 'Transfer successful',
+                                    'raw' => $trfRes,
+                                ];
+                                $totalFeeMinor += 1000;
+                                $successCount++;
+                            } elseif ($rawStatus === 'otp' || $rawStatus === 'pending' || $rawStatus === 'processing') {
+                                $allSuccess = false;
+                                $hasPendingOtp = true;
+                                $itemResults[$ref] = [
+                                    'status' => 'processing',
+                                    'gateway_status' => 'PENDING_AUTHORIZATION',
+                                    'gateway_reference' => (string) $trfCode,
+                                    'fee_minor' => 1000,
+                                    'message' => $trfRes['message'] ?? 'Transfer requires OTP authorization',
+                                    'raw' => $trfRes,
+                                ];
+                                $totalFeeMinor += 1000;
+                            } else {
+                                $allSuccess = false;
+                                $itemResults[$ref] = [
+                                    'status' => 'failed',
+                                    'gateway_status' => strtoupper($rawStatus),
+                                    'gateway_reference' => (string) $trfCode,
+                                    'fee_minor' => 0,
+                                    'message' => $trfRes['message'] ?? 'Transfer failed at Paystack',
+                                    'raw' => $trfRes,
+                                ];
+                            }
+                        } else {
+                            $allSuccess = false;
+                            $itemResults[$ref] = [
+                                'status' => 'failed',
+                                'gateway_status' => 'FAILED',
+                                'gateway_reference' => $ref,
+                                'fee_minor' => 0,
+                                'message' => $trfRes['message'] ?? 'Transfer failed at Paystack',
+                                'raw' => $trfRes,
+                            ];
+                        }
+                    } catch (\Throwable $e) {
+                        $allSuccess = false;
+                        $itemResults[$ref] = [
+                            'status' => 'failed',
+                            'gateway_status' => 'FAILED',
+                            'gateway_reference' => $ref,
+                            'fee_minor' => 0,
+                            'message' => $e->getMessage(),
+                        ];
+                    }
+                }
+
+                $totalItemsCount = count($transfers);
+                $finalStatus = ($allSuccess && $successCount === $totalItemsCount && $totalItemsCount > 0)
+                    ? 'completed'
+                    : ($hasPendingOtp ? 'processing' : (($successCount > 0) ? 'partially_completed' : 'failed'));
+                $gwStatus = ($allSuccess && $successCount === $totalItemsCount && $totalItemsCount > 0)
+                    ? 'SUCCESS'
+                    : ($hasPendingOtp ? 'PENDING_AUTHORIZATION' : (($successCount > 0) ? 'PROCESSING' : 'FAILED'));
+
+                return BulkTransferResult::successful(
+                    batchReference: $request->batchReference,
+                    gatewayBatchReference: (string) ($batchCode ?: $request->batchReference),
+                    status: $finalStatus,
+                    message: $hasPendingOtp ? 'Transfers initiated — Paystack OTP authorization required.' : "Disbursed {$successCount} of {$totalItemsCount} transfers via Paystack.",
+                    totalAmountMinor: $request->totalAmountMinor(),
+                    totalFeeMinor: $totalFeeMinor,
+                    itemResults: $itemResults,
+                    rawResponse: ['transfers_count' => count($transfers), 'has_otp' => $hasPendingOtp],
+                    gatewayStatus: $gwStatus,
+                );
+            }
 
             if (isset($bulkResponse['status']) && $bulkResponse['status'] === true) {
                 $responseData = $bulkResponse['data'] ?? [];
@@ -304,42 +432,54 @@ class PaystackGateway implements PaymentGatewayInterface
                     }
 
                     $itemTransferCode = $matched['transfer_code'] ?? ($matched['id'] ?? $batchCode);
-                    $itemStatus = strtolower($matched['status'] ?? 'success');
-                    $isItemSuccess = ($itemStatus === 'success' || $itemStatus === 'pending' || $itemStatus === 'processing' || $itemStatus === 'queued');
+                    $rawItemStatus = strtolower($matched['status'] ?? 'processing');
+                    $isExplicitSuccess = ($rawItemStatus === 'success' || $rawItemStatus === 'successful');
+                    $isExplicitFailed = ($rawItemStatus === 'failed' || $rawItemStatus === 'reversed' || $rawItemStatus === 'abandoned');
 
                     if (!$batchCode && !empty($itemTransferCode)) {
                         $batchCode = (string) $itemTransferCode;
                     }
 
-                    $itemMsg = $matched['message'] ?? ($bulkResponse['message'] ?? ('Paystack: ' . ucfirst($itemStatus)));
+                    $itemMsg = $matched['message'] ?? ($bulkResponse['message'] ?? ('Paystack: ' . ucfirst($rawItemStatus)));
 
-                    if ($isItemSuccess) {
+                    if ($isExplicitSuccess) {
                         $itemResults[$ref] = [
                             'status' => 'successful',
-                            'gateway_status' => strtoupper($itemStatus),
+                            'gateway_status' => strtoupper($rawItemStatus),
                             'gateway_reference' => (string) ($itemTransferCode ?: $request->batchReference),
-                            'fee_minor' => 1000, // ₦10 standard transfer fee per item
+                            'fee_minor' => 1000,
                             'message' => $itemMsg,
-                            'raw' => $matched ?? ['status' => $itemStatus, 'transfer_code' => $itemTransferCode],
+                            'raw' => $matched ?? ['status' => $rawItemStatus, 'transfer_code' => $itemTransferCode],
                         ];
                         $totalFeeMinor += 1000;
                         $successCount++;
-                    } else {
+                    } elseif ($isExplicitFailed) {
                         $allSuccess = false;
                         $itemResults[$ref] = [
                             'status' => 'failed',
-                            'gateway_status' => strtoupper($itemStatus),
+                            'gateway_status' => strtoupper($rawItemStatus),
                             'gateway_reference' => (string) ($itemTransferCode ?: $request->batchReference),
                             'fee_minor' => 0,
                             'message' => $itemMsg,
-                            'raw' => $matched ?? ['status' => $itemStatus, 'message' => $itemMsg],
+                            'raw' => $matched ?? ['status' => $rawItemStatus, 'message' => $itemMsg],
                         ];
+                    } else {
+                        $allSuccess = false;
+                        $itemResults[$ref] = [
+                            'status' => 'processing',
+                            'gateway_status' => strtoupper($rawItemStatus),
+                            'gateway_reference' => (string) ($itemTransferCode ?: $request->batchReference),
+                            'fee_minor' => 1000,
+                            'message' => $itemMsg,
+                            'raw' => $matched ?? ['status' => $rawItemStatus, 'transfer_code' => $itemTransferCode],
+                        ];
+                        $totalFeeMinor += 1000;
                     }
                 }
 
-                // If transfers were accepted and OTP is disabled, mark batch completed immediately
-                $finalStatus = ($allSuccess && $successCount > 0) ? 'completed' : 'processing';
-                $gwStatus = ($allSuccess && $successCount > 0) ? 'SUCCESS' : 'PROCESSING';
+                $totalItemsCount = count($transfers);
+                $finalStatus = ($allSuccess && $successCount === $totalItemsCount && $totalItemsCount > 0) ? 'completed' : 'processing';
+                $gwStatus = ($allSuccess && $successCount === $totalItemsCount && $totalItemsCount > 0) ? 'SUCCESS' : 'PROCESSING';
 
                 return BulkTransferResult::successful(
                     batchReference: $request->batchReference,
@@ -356,8 +496,214 @@ class PaystackGateway implements PaymentGatewayInterface
 
             return BulkTransferResult::failed($request->batchReference, $bulkResponse['message'] ?? 'Bulk transfer request failed', $bulkResponse);
         } catch (\Throwable $e) {
-            Log::error('Paystack bulk transfer failed: ' . $e->getMessage(), ['batch' => $request->batchReference]);
+            Log::error('Paystack bulk transfer error: ' . $e->getMessage(), ['batch' => $request->batchReference]);
             return BulkTransferResult::failed($request->batchReference, $e->getMessage());
         }
+    }
+
+    /**
+     * Authorize and validate an OTP/2FA code for a pending Paystack bulk transfer batch.
+     */
+    public function validateBatchOtp(string $batchReference, string $otp, ?string $gatewayBatchReference = null): BulkTransferResult
+    {
+        $api = PaystackApi::getInstance();
+        $transferCode = $gatewayBatchReference ?: $batchReference;
+
+        try {
+            $response = $api->post('transfer/finalize_transfer', [
+                'transfer_code' => $transferCode,
+                'otp' => $otp,
+            ]);
+
+            if (!isset($response['status']) || $response['status'] !== true) {
+                $msg = $response['message'] ?? 'Invalid Paystack OTP';
+                throw new Exception($msg);
+            }
+        } catch (\Throwable $e) {
+            $lower = strtolower($e->getMessage());
+            if (
+                str_contains($lower, 'already processed') ||
+                str_contains($lower, 'already finalized') ||
+                str_contains($lower, 'otp has been disabled') ||
+                str_contains($lower, 'otp disabled')
+            ) {
+                $response = ['status' => true, 'message' => 'Transfer already finalized with Paystack'];
+            } else {
+                throw $e;
+            }
+        }
+
+        return BulkTransferResult::successful(
+            batchReference: $batchReference,
+            gatewayBatchReference: $transferCode,
+            status: 'completed',
+            message: $response['message'] ?? 'Batch transfer finalized with Paystack',
+            rawResponse: $response,
+            gatewayStatus: 'SUCCESS',
+        );
+    }
+
+    /**
+     * Resend authorization OTP code for a pending Paystack bulk transfer batch.
+     */
+    public function resendBatchOtp(string $batchReference, ?string $gatewayBatchReference = null): array
+    {
+        $api = PaystackApi::getInstance();
+        $response = $api->post('transfer/resend_otp', [
+            'transfer_code' => $gatewayBatchReference ?: $batchReference,
+            'reason' => 'resend_otp',
+        ]);
+
+        if (!isset($response['status']) || $response['status'] !== true) {
+            $msg = $response['message'] ?? 'Failed to resend Paystack OTP';
+            throw new Exception($msg);
+        }
+
+        return $response;
+    }
+
+    /**
+     * Verify and synchronize live settlement status for a Paystack bulk transfer batch and its line items.
+     *
+     * @param array<int, array{reference: string, account_number?: string, amount_minor?: int, gateway_reference?: string, status?: string}> $items
+     */
+    public function verifyBatch(string $batchReference, ?string $gatewayBatchReference = null, array $items = []): BulkTransferResult
+    {
+        $api = PaystackApi::getInstance();
+
+        // 1. Fetch recent Paystack transfers to match items in bulk
+        $recentTransfers = [];
+        try {
+            $response = $api->get('transfer', ['perPage' => 50]);
+            $recentTransfers = $response['data'] ?? [];
+        } catch (\Throwable $e) {
+            Log::info('Paystack transfers query note: ' . $e->getMessage());
+        }
+
+        $itemResults = [];
+        $successCount = 0;
+        $failedCount = 0;
+        $latestGwStatus = 'PROCESSING';
+        $totalFeeMinor = 0;
+
+        foreach ($items as $item) {
+            $ref = $item['reference'] ?? '';
+            $gwRef = $item['gateway_reference'] ?? '';
+            $accountNumber = $item['account_number'] ?? '';
+            $amountMinor = (int) ($item['amount_minor'] ?? 0);
+            $matchedTrf = null;
+
+            // 1a. Check recent transfers list
+            foreach ($recentTransfers as $trf) {
+                $trfRef = $trf['reference'] ?? '';
+                $trfCode = $trf['transfer_code'] ?? '';
+                $trfAmount = (int) ($trf['amount'] ?? 0);
+                $trfAccount = $trf['recipient']['details']['account_number'] ?? ($trf['recipient']['account_number'] ?? '');
+
+                if (
+                    ($ref && $trfRef === $ref)
+                    || ($gwRef && $trfCode === $gwRef)
+                    || ($accountNumber && $trfAccount === $accountNumber && $trfAmount === $amountMinor)
+                ) {
+                    $matchedTrf = $trf;
+                    break;
+                }
+            }
+
+            // 1b. If not in recent list and item has reference, verify individually
+            if (!$matchedTrf && $ref) {
+                try {
+                    $res = $api->get('transfer/verify/' . $ref);
+                    if (isset($res['data'])) {
+                        $matchedTrf = $res['data'];
+                    }
+                } catch (\Throwable $e) {
+                    if ($gwRef && str_starts_with($gwRef, 'TRF_')) {
+                        try {
+                            $res = $api->get('transfer/' . $gwRef);
+                            if (isset($res['data'])) {
+                                $matchedTrf = $res['data'];
+                            }
+                        } catch (\Throwable) {}
+                    }
+                }
+            }
+
+            if ($matchedTrf) {
+                $rawStatus = strtolower($matchedTrf['status'] ?? 'processing');
+                $itemGwStatus = strtoupper($rawStatus);
+                $itemTrfCode = $matchedTrf['transfer_code'] ?? ($matchedTrf['id'] ?? ($gwRef ?: $batchReference));
+                $itemMsg = $matchedTrf['message'] ?? ($matchedTrf['reason'] ?? 'Paystack: ' . ucfirst($rawStatus));
+
+                if ($rawStatus === 'success' || $rawStatus === 'successful') {
+                    $successCount++;
+                    $totalFeeMinor += 1000;
+                    $itemResults[$ref] = [
+                        'status' => 'successful',
+                        'gateway_reference' => (string) $itemTrfCode,
+                        'gateway_status' => $itemGwStatus,
+                        'gateway_response' => $matchedTrf,
+                        'fee_minor' => 1000,
+                        'message' => $itemMsg,
+                    ];
+                } elseif ($rawStatus === 'failed' || $rawStatus === 'reversed' || $rawStatus === 'abandoned') {
+                    $failedCount++;
+                    $itemResults[$ref] = [
+                        'status' => 'failed',
+                        'gateway_reference' => (string) $itemTrfCode,
+                        'gateway_status' => $itemGwStatus,
+                        'gateway_response' => $matchedTrf,
+                        'fee_minor' => 0,
+                        'message' => $itemMsg,
+                    ];
+                } else {
+                    $itemResults[$ref] = [
+                        'status' => 'processing',
+                        'gateway_reference' => (string) $itemTrfCode,
+                        'gateway_status' => $itemGwStatus,
+                        'gateway_response' => $matchedTrf,
+                        'fee_minor' => 1000,
+                        'message' => $itemMsg,
+                    ];
+                    $totalFeeMinor += 1000;
+                }
+
+                $latestGwStatus = $itemGwStatus;
+            } else {
+                $prevItemStatus = $item['status'] ?? 'processing';
+                if ($prevItemStatus === 'successful') {
+                    $successCount++;
+                    $totalFeeMinor += 1000;
+                } elseif ($prevItemStatus === 'failed') {
+                    $failedCount++;
+                }
+
+                $itemResults[$ref] = [
+                    'status' => $prevItemStatus,
+                    'gateway_reference' => $gwRef ?: $batchReference,
+                    'gateway_status' => strtoupper($prevItemStatus),
+                    'fee_minor' => ($prevItemStatus === 'successful' ? 1000 : 0),
+                    'message' => null,
+                ];
+            }
+        }
+
+        $totalItems = count($items);
+        $batchStatus = ($failedCount === 0 && $successCount === $totalItems && $totalItems > 0)
+            ? 'completed'
+            : (($successCount > 0 && $failedCount > 0)
+                ? 'partially_completed'
+                : (($failedCount === $totalItems && $totalItems > 0) ? 'failed' : 'processing'));
+
+        return BulkTransferResult::successful(
+            batchReference: $batchReference,
+            gatewayBatchReference: $gatewayBatchReference ?: $batchReference,
+            status: $batchStatus,
+            message: "Paystack batch sync: {$successCount} successful, {$failedCount} failed",
+            totalAmountMinor: 0,
+            totalFeeMinor: $totalFeeMinor,
+            itemResults: $itemResults,
+            gatewayStatus: $latestGwStatus,
+        );
     }
 }

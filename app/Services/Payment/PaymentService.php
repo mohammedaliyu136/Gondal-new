@@ -56,6 +56,32 @@ class PaymentService
     }
 
     /**
+     * Authorize and finalize a pending batch transfer with OTP via the gateway.
+     */
+    public function validateBatchOtp(string $batchReference, string $otp, ?string $gateway = null, ?string $gatewayBatchReference = null): BulkTransferResult
+    {
+        return $this->gateway($gateway)->validateBatchOtp($batchReference, $otp, $gatewayBatchReference);
+    }
+
+    /**
+     * Resend batch authorization OTP via the gateway.
+     */
+    public function resendBatchOtp(string $batchReference, ?string $gateway = null, ?string $gatewayBatchReference = null): array
+    {
+        return $this->gateway($gateway)->resendBatchOtp($batchReference, $gatewayBatchReference);
+    }
+
+    /**
+     * Query and verify live batch and item settlement status via the gateway.
+     *
+     * @param array<int, array{reference: string, account_number?: string, amount_minor?: int, gateway_reference?: string, status?: string}> $items
+     */
+    public function verifyBatch(string $batchReference, ?string $gateway = null, ?string $gatewayBatchReference = null, array $items = []): BulkTransferResult
+    {
+        return $this->gateway($gateway)->verifyBatch($batchReference, $gatewayBatchReference, $items);
+    }
+
+    /**
      * Handle and verify an incoming webhook from a payment gateway.
      */
     public function handleWebhook(string $gateway, array $payload, array $headers, string $rawBody): ?PaymentVerifyResult

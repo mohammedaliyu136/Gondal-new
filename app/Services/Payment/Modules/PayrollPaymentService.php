@@ -8,13 +8,12 @@ use App\Models\Employee;
 use App\Models\PaymentBatch;
 use App\Models\PaymentBatchItem;
 use App\Models\PayrollRun;
+use App\Models\Payslip;
 use App\Models\User;
 use App\Services\Audit\AuditLogger;
 use App\Services\Payment\Contracts\ModulePaymentServiceInterface;
 use App\Services\Payment\DTOs\BulkTransferRequest;
 use App\Services\Payment\DTOs\PayoutRecipient;
-use App\Services\Payment\PaymentApi\MonnifyApi;
-use App\Services\Payment\PaymentApi\PaystackApi;
 use App\Services\Payment\PaymentService;
 use App\Support\Money;
 use App\Support\Wat;
@@ -57,18 +56,13 @@ class PayrollPaymentService implements ModulePaymentServiceInterface
         return DB::transaction(function () use ($subject, $gateway, $actor, $notes): PaymentBatch {
             $batchReference = $this->paymentService->generateReference('PB-PAY-' . sprintf('%04d%02d', $subject->period_year, $subject->period_month));
 
-            $payslips = $subject->payslips()->with('employee.department')->get();
+            $payslips = $subject->payslips()->where('status', '!=', Payslip::STATUS_PAID)->with('employee.department')->get();
+            if ($payslips->isEmpty()) {
+                throw new Exception('All payslips on this payroll run have already been marked as paid.');
+            }
             $netTotalMinor = (int) $payslips->sum('net_minor');
             $grossTotalMinor = (int) $payslips->sum('gross_minor');
             $deductionsTotalMinor = (int) $payslips->sum('deductions_minor');
-
-            // Synchronize payroll run totals if they drifted
-            $subject->forceFill([
-                'employee_count' => $payslips->count(),
-                'gross_total_minor' => $grossTotalMinor,
-                'deductions_total_minor' => $deductionsTotalMinor,
-                'net_total_minor' => $netTotalMinor,
-            ])->save();
 
             $batch = PaymentBatch::query()->create([
                 'batch_reference' => $batchReference,
@@ -145,38 +139,51 @@ class PayrollPaymentService implements ModulePaymentServiceInterface
         $bulkRequest = new BulkTransferRequest(
             batchReference: $batch->batch_reference,
             recipients: $recipients,
-            title: 'Payroll Disbursement — ' . ($batch->meta['period'] ?? 'Staff Salaries'),
+            title: 'Payroll Disbursement — ' . ($payrollRun instanceof PayrollRun ? $payrollRun->periodLabel() : 'Batch ' . $batch->batch_reference),
             currency: $batch->currency,
             otp: $otp,
         );
 
         $transferResult = $this->paymentService->bulkTransfer($bulkRequest, $batch->gateway);
 
-        if (!$transferResult->success && in_array($batch->gateway, ['monnify', 'paystack', 'zainpay'])) {
-            throw new Exception('Payment Gateway Error (' . ucfirst($batch->gateway) . '): ' . ($transferResult->message ?? 'Batch transfer failed.'));
-        }
-
         DB::transaction(function () use ($batch, $transferResult, $payrollRun): void {
+            $now = Wat::now();
             $successfulCount = 0;
             $failedCount = 0;
-            $totalFees = $transferResult->totalFeeMinor;
+            $totalFees = 0;
 
             foreach ($batch->items as $item) {
                 $itemResult = $transferResult->itemResults[$item->item_reference] ?? null;
+                $isItemSuccessful = $transferResult->success && ($itemResult === null || ($itemResult['status'] ?? '') === 'successful');
 
-                if ($itemResult && ($itemResult['status'] === 'successful' || $transferResult->success)) {
+                if ($isItemSuccessful) {
+                    $itemFee = (int) ($itemResult['fee_minor'] ?? 0);
+                    $totalFees += $itemFee;
                     $item->forceFill([
                         'status' => PaymentBatchItem::STATUS_SUCCESSFUL,
                         'gateway_reference' => $itemResult['gateway_reference'] ?? $transferResult->gatewayBatchReference,
-                        'fee_minor' => $itemResult['fee_minor'] ?? 0,
+                        'fee_minor' => $itemFee,
+                        'gateway_status' => 'SUCCESS',
                         'gateway_response' => $itemResult,
-                        'paid_at' => Wat::now(),
+                        'paid_at' => $now,
                     ])->save();
                     $successfulCount++;
+
+                    // Settle payslip
+                    if ($payrollRun instanceof PayrollRun && $item->recipient_id) {
+                        Payslip::query()
+                            ->where('payroll_run_id', $payrollRun->id)
+                            ->where('employee_id', $item->recipient_id)
+                            ->update([
+                                'status' => Payslip::STATUS_PAID,
+                                'paid_at' => $now,
+                            ]);
+                    }
                 } else {
                     $item->forceFill([
                         'status' => PaymentBatchItem::STATUS_FAILED,
                         'failure_reason' => $itemResult['message'] ?? $transferResult->message,
+                        'gateway_status' => 'FAILED',
                         'gateway_response' => $itemResult,
                     ])->save();
                     $failedCount++;
@@ -190,10 +197,9 @@ class PayrollPaymentService implements ModulePaymentServiceInterface
                 $batchStatus = PaymentBatch::STATUS_PARTIALLY_COMPLETED;
             }
 
-            $now = Wat::now();
-
             $batch->forceFill([
                 'gateway_batch_reference' => $transferResult->gatewayBatchReference,
+                'gateway_status' => $transferResult->gatewayStatus ?? ($batchStatus === PaymentBatch::STATUS_COMPLETED ? 'SUCCESS' : 'PROCESSING'),
                 'total_fee_minor' => $totalFees,
                 'successful_items_count' => $successfulCount,
                 'failed_items_count' => $failedCount,
@@ -201,28 +207,35 @@ class PayrollPaymentService implements ModulePaymentServiceInterface
                 'completed_at' => ($batchStatus === PaymentBatch::STATUS_COMPLETED) ? $now : null,
             ])->save();
 
-            // Settle payroll run if completed
-            if ($payrollRun instanceof PayrollRun && $batchStatus === PaymentBatch::STATUS_COMPLETED) {
-                $payrollRun->forceFill([
-                    'status' => PayrollRun::STATUS_PAID,
-                    'paid_at' => $now,
-                ])->save();
+            // Settle payroll run if all payslips are paid
+            if ($payrollRun instanceof PayrollRun) {
+                $unpaidCount = Payslip::query()
+                    ->where('payroll_run_id', $payrollRun->id)
+                    ->where('status', '!=', Payslip::STATUS_PAID)
+                    ->count();
 
-                $this->audit->edited(
-                    $payrollRun,
-                    sprintf(
-                        '%s disbursed via %s (%s) — %s to %d employees',
-                        $payrollRun->periodLabel(),
-                        strtoupper($batch->gateway),
-                        $batch->batch_reference,
-                        Money::format((int) $payrollRun->net_total_minor),
-                        $successfulCount
-                    ),
-                    'Human Resources',
-                    ['status' => PayrollRun::STATUS_APPROVED],
-                    ['status' => PayrollRun::STATUS_PAID, 'batch' => $batch->batch_reference, 'fee_minor' => $totalFees],
-                    $batch->authorizedBy ?? $batch->initiatedBy
-                );
+                if ($unpaidCount === 0) {
+                    $payrollRun->forceFill([
+                        'status' => PayrollRun::STATUS_PAID,
+                        'paid_at' => $now,
+                    ])->save();
+
+                    $this->audit->edited(
+                        $payrollRun,
+                        sprintf(
+                            '%s disbursed via %s (%s) — %s to %d employees',
+                            $payrollRun->periodLabel(),
+                            strtoupper($batch->gateway),
+                            $batch->batch_reference,
+                            Money::format((int) $payrollRun->net_total_minor),
+                            $successfulCount
+                        ),
+                        'Human Resources',
+                        ['status' => PayrollRun::STATUS_APPROVED],
+                        ['status' => PayrollRun::STATUS_PAID, 'batch' => $batch->batch_reference, 'fee_minor' => $totalFees],
+                        $batch->authorizedBy ?? $batch->initiatedBy
+                    );
+                }
             }
         });
 
@@ -234,18 +247,11 @@ class PayrollPaymentService implements ModulePaymentServiceInterface
      */
     public function disburseRun(PayrollRun $run, string $gateway, User $actor, ?string $notes = null, ?string $otp = null): PaymentBatch
     {
-        $payslips = $run->payslips()->with('employee.department')->get();
-        if ($payslips->isEmpty()) {
-            throw new Exception('Cannot disburse payroll: No payslip items found on this run.');
+        $unpaidPayslips = $run->payslips()->where('status', '!=', Payslip::STATUS_PAID)->with('employee.department')->get();
+        if ($unpaidPayslips->isEmpty()) {
+            throw new Exception('All payslips in this payroll run have already been marked as paid.');
         }
-
-        $netTotalMinor = (int) $payslips->sum('net_minor');
-        $run->forceFill([
-            'employee_count' => $payslips->count(),
-            'gross_total_minor' => (int) $payslips->sum('gross_minor'),
-            'deductions_total_minor' => (int) $payslips->sum('deductions_minor'),
-            'net_total_minor' => $netTotalMinor,
-        ])->save();
+        $payslips = $unpaidPayslips;
 
         $batchReference = $this->paymentService->generateReference('PB-PAY-' . sprintf('%04d%02d', $run->period_year, $run->period_month));
 
@@ -289,10 +295,6 @@ class PayrollPaymentService implements ModulePaymentServiceInterface
             return DB::transaction(function () use ($run, $gateway, $actor, $notes, $batchReference, $payslips, $transferResult, $payslipItemRefs): PaymentBatch {
                 $now = Wat::now();
 
-                $successfulCount = 0;
-                $failedCount = 0;
-                $totalFees = $transferResult->totalFeeMinor;
-
                 $batch = PaymentBatch::query()->create([
                     'batch_reference' => $batchReference,
                     'gateway_batch_reference' => $transferResult->gatewayBatchReference,
@@ -302,8 +304,8 @@ class PayrollPaymentService implements ModulePaymentServiceInterface
                     'source_id' => $run->getKey(),
                     'gateway' => $gateway,
                     'currency' => 'NGN',
-                    'total_amount_minor' => (int) $run->net_total_minor,
-                    'total_fee_minor' => $totalFees,
+                    'total_amount_minor' => $transferResult->totalAmountMinor,
+                    'total_fee_minor' => $transferResult->totalFeeMinor,
                     'total_items_count' => $payslips->count(),
                     'successful_items_count' => 0,
                     'failed_items_count' => 0,
@@ -311,31 +313,39 @@ class PayrollPaymentService implements ModulePaymentServiceInterface
                     'notes' => $notes,
                     'meta' => [
                         'period' => $run->periodLabel(),
-                        'gross_minor' => $run->gross_total_minor,
-                        'deductions_minor' => $run->deductions_total_minor,
+                        'gross_minor' => (int) $payslips->sum('gross_minor'),
+                        'deductions_minor' => (int) $payslips->sum('deductions_minor'),
                     ],
                     'initiated_by_user_id' => $actor->getKey(),
-                    'authorized_by_user_id' => $actor->getKey(),
+                    'authorized_by_user_id' => ($transferResult->status === 'completed') ? $actor->getKey() : null,
                     'disbursed_at' => $now,
                 ]);
+
+                $successfulCount = 0;
+                $failedCount = 0;
 
                 foreach ($payslips as $payslip) {
                     $employee = $payslip->employee;
                     $itemRef = $payslipItemRefs[$payslip->id] ?? $this->paymentService->generateReference('PBI-PAY-' . $payslip->id);
                     $itemResult = $transferResult->itemResults[$itemRef] ?? null;
 
-                    $isSuccess = $itemResult && ($itemResult['status'] === 'successful');
-                    $itemStatus = $isSuccess ? PaymentBatchItem::STATUS_SUCCESSFUL : PaymentBatchItem::STATUS_FAILED;
-                    $gwItemRef = $itemResult['gateway_reference'] ?? $transferResult->gatewayBatchReference;
-                    $gwItemStatus = $itemResult['gateway_status'] ?? ($isSuccess ? 'SUCCESS' : 'FAILED');
-                    $itemFee = $itemResult['fee_minor'] ?? 0;
+                    $isSuccess = $itemResult !== null && ($itemResult['status'] ?? '') === 'successful';
+                    $isFailed = $itemResult !== null && ($itemResult['status'] ?? '') === 'failed';
+                    $itemFee = (int) ($itemResult['fee_minor'] ?? 0);
+                    $gwItemRef = (string) ($itemResult['gateway_reference'] ?? $transferResult->gatewayBatchReference);
+                    $gwItemStatus = (string) ($itemResult['gateway_status'] ?? ($isSuccess ? 'SUCCESS' : ($isFailed ? 'FAILED' : 'PROCESSING')));
                     $itemMsg = $itemResult['message'] ?? null;
-                    $rawResponse = $itemResult['raw'] ?? (is_array($itemResult) ? $itemResult : ['message' => $itemMsg, 'status' => $gwItemStatus]);
+                    $rawResponse = $itemResult['raw'] ?? $itemResult;
 
                     if ($isSuccess) {
                         $successfulCount++;
-                    } else {
+                        $itemStatus = PaymentBatchItem::STATUS_SUCCESSFUL;
+                        $payslip->forceFill(['status' => Payslip::STATUS_PAID, 'paid_at' => $now])->save();
+                    } elseif ($isFailed) {
                         $failedCount++;
+                        $itemStatus = PaymentBatchItem::STATUS_FAILED;
+                    } else {
+                        $itemStatus = PaymentBatchItem::STATUS_INITIALIZED;
                     }
 
                     PaymentBatchItem::query()->create([
@@ -375,7 +385,13 @@ class PayrollPaymentService implements ModulePaymentServiceInterface
                     'completed_at' => ($batchStatus === PaymentBatch::STATUS_COMPLETED) ? $now : null,
                 ])->save();
 
-                if ($batchStatus === PaymentBatch::STATUS_COMPLETED) {
+                // Check if all payslips on the run are paid
+                $unpaidCount = Payslip::query()
+                    ->where('payroll_run_id', $run->id)
+                    ->where('status', '!=', Payslip::STATUS_PAID)
+                    ->count();
+
+                if ($unpaidCount === 0) {
                     $run->forceFill([
                         'status' => PayrollRun::STATUS_PAID,
                         'paid_at' => $now,
@@ -401,522 +417,224 @@ class PayrollPaymentService implements ModulePaymentServiceInterface
         $batch->load(['items', 'source']);
         $payrollRun = $batch->source;
 
-        $reference = $batch->gateway_batch_reference ?: $batch->batch_reference;
-
         try {
-            if ($batch->gateway === 'monnify') {
-                $api = MonnifyApi::getInstance();
-                $response = $api->post('api/v2/disbursements/batch/validate-otp', [
-                    'reference' => $reference,
-                    'authorizationCode' => $otp,
-                ]);
-
-                if (!isset($response['requestSuccessful']) || $response['requestSuccessful'] !== true) {
-                    $msg = $response['responseMessage'] ?? 'Invalid authorization code';
-                    throw new Exception($msg);
-                }
-            } elseif ($batch->gateway === 'paystack') {
-                $api = PaystackApi::getInstance();
-                $response = $api->post('transfer/finalize_transfer', [
-                    'transfer_code' => $reference,
-                    'otp' => $otp,
-                ]);
-
-                if (!isset($response['status']) || $response['status'] !== true) {
-                    $msg = $response['message'] ?? 'Invalid OTP code';
-                    throw new Exception($msg);
-                }
-            }
+            $this->paymentService->validateBatchOtp(
+                batchReference: $batch->batch_reference,
+                otp: $otp,
+                gateway: $batch->gateway,
+                gatewayBatchReference: $batch->gateway_batch_reference,
+            );
         } catch (\Throwable $e) {
             $errorMessage = $e->getMessage();
             $lower = strtolower($errorMessage);
 
-            // If OTP is disabled on Paystack/Monnify and transfer is already running/processed without OTP
-            $isOtpDisabledOrAlreadyDone = str_contains($lower, 'cannot be finalized with otp')
-                || str_contains($lower, 'otp is disabled')
-                || str_contains($lower, 'otp disabled')
-                || str_contains($lower, 'not required')
-                || str_contains($lower, 'already processed')
-                || str_contains($lower, 'already queued')
-                || str_contains($lower, 'already finalized');
+            // Auto-detect when OTP is disabled or transfers already processed
+            $isOtpDisabled = str_contains($lower, 'otp has been disabled') || str_contains($lower, 'otp disabled');
+            $isAlreadyProcessed = str_contains($lower, 'already processed') || str_contains($lower, 'already finalized');
 
-            if ($isOtpDisabledOrAlreadyDone) {
+            if ($isOtpDisabled || $isAlreadyProcessed) {
                 goto finalize_batch;
             }
 
-            // Check if error indicates expired OTP or non-retryable batch state
-            $isTerminalFailure = str_contains($lower, 'expired')
-                || str_contains($lower, 'not awaiting authorization')
-                || str_contains($lower, 'exceeded')
-                || str_contains($lower, 'not found')
-                || str_contains($lower, 'cancelled');
+            // If OTP expired / not awaiting authorization, update batch status to failed
+            if (
+                str_contains($lower, 'expired') ||
+                str_contains($lower, 'invalid otp') ||
+                str_contains($lower, 'otp expired') ||
+                str_contains($lower, 'token has expired') ||
+                str_contains($lower, 'not awaiting authorization')
+            ) {
+                $batch->forceFill([
+                    'status' => PaymentBatch::STATUS_FAILED,
+                    'gateway_status' => 'EXPIRED',
+                    'failed_items_count' => $batch->items->count(),
+                    'notes' => trim(($batch->notes ? $batch->notes . "\n" : '') . 'Authorization failed: ' . $errorMessage),
+                ])->save();
 
-            if ($isTerminalFailure) {
-                DB::transaction(function () use ($batch, $errorMessage): void {
-                    $batch->forceFill([
-                        'status' => PaymentBatch::STATUS_FAILED,
-                        'failed_items_count' => $batch->items->count(),
-                        'successful_items_count' => 0,
-                    ])->save();
-
-                    foreach ($batch->items as $item) {
+                foreach ($batch->items as $item) {
+                    if ($item->status !== PaymentBatchItem::STATUS_SUCCESSFUL) {
                         $item->forceFill([
                             'status' => PaymentBatchItem::STATUS_FAILED,
-                            'failure_reason' => $errorMessage,
+                            'gateway_status' => 'EXPIRED',
+                            'failure_reason' => 'Batch expired at gateway (Authorization window closed)',
                         ])->save();
                     }
-                });
+                }
             }
 
             throw new Exception(ucfirst($batch->gateway) . ' OTP Error: ' . $errorMessage);
         }
 
         finalize_batch:
-        // If gateway successfully validated OTP or OTP is disabled, finalize batch and payroll run
-        DB::transaction(function () use ($batch, $actor, $payrollRun): void {
-            $now = Wat::now();
+        $batch->forceFill([
+            'authorized_by_user_id' => $actor->getKey(),
+        ])->save();
 
-            foreach ($batch->items as $item) {
-                $item->forceFill([
-                    'status' => PaymentBatchItem::STATUS_SUCCESSFUL,
-                    'gateway_status' => 'SUCCESS',
-                    'paid_at' => $now,
-                ])->save();
-            }
+        // Immediately trigger live status synchronization right after successful OTP authorization
+        $syncedBatch = $this->syncBatchStatus($batch, $actor);
 
-            $batch->forceFill([
-                'status' => PaymentBatch::STATUS_COMPLETED,
-                'gateway_status' => 'SUCCESS',
-                'successful_items_count' => $batch->items->count(),
-                'failed_items_count' => 0,
-                'authorized_by_user_id' => $actor->getKey(),
-                'completed_at' => $now,
-            ])->save();
+        if ($payrollRun instanceof PayrollRun) {
+            $this->audit->edited(
+                $payrollRun,
+                sprintf(
+                    '%s finalized with OTP via %s (%s) — %s to %d employees',
+                    $payrollRun->periodLabel(),
+                    strtoupper($batch->gateway),
+                    $batch->batch_reference,
+                    Money::format((int) $payrollRun->net_total_minor),
+                    $syncedBatch->successful_items_count
+                ),
+                'Human Resources',
+                ['status' => PayrollRun::STATUS_APPROVED],
+                ['status' => $payrollRun->status, 'batch' => $batch->batch_reference],
+                $actor
+            );
+        }
 
-            if ($payrollRun instanceof PayrollRun) {
-                $payrollRun->forceFill([
-                    'status' => PayrollRun::STATUS_PAID,
-                    'paid_at' => $now,
-                ])->save();
-
-                $this->audit->edited(
-                    $payrollRun,
-                    sprintf(
-                        '%s finalized with OTP via %s (%s) — %s to %d employees',
-                        $payrollRun->periodLabel(),
-                        strtoupper($batch->gateway),
-                        $batch->batch_reference,
-                        Money::format((int) $payrollRun->net_total_minor),
-                        $batch->items->count()
-                    ),
-                    'Human Resources',
-                    ['status' => PayrollRun::STATUS_APPROVED],
-                    ['status' => PayrollRun::STATUS_PAID, 'batch' => $batch->batch_reference],
-                    $actor
-                );
-            }
-        });
-
-        return $batch->refresh();
+        return $syncedBatch;
     }
 
     /**
-     * Re-query live gateway API and synchronize the status of a pending batch.
+     * Resend 2FA authorization OTP code via gateway.
+     */
+    public function resendBatchOtp(PaymentBatch $batch, User $actor): void
+    {
+        $batch->load(['items', 'source']);
+
+        $this->paymentService->resendBatchOtp(
+            batchReference: $batch->batch_reference,
+            gateway: $batch->gateway,
+            gatewayBatchReference: $batch->gateway_batch_reference,
+        );
+    }
+
+    /**
+     * Re-query live payment gateway to synchronize batch and individual items,
+     * updating payslip settlement statuses and overall payroll run state accordingly.
      */
     public function syncBatchStatus(PaymentBatch $batch, User $actor): PaymentBatch
     {
         $batch->load(['items', 'source']);
         $payrollRun = $batch->source;
-        $reference = $batch->gateway_batch_reference ?: $batch->batch_reference;
-
-        if ($batch->gateway === 'paystack') {
-            $api = PaystackApi::getInstance();
-            $gwRef = $batch->gateway_batch_reference;
-            $firstItem = $batch->items->first();
-            $itemRef = $firstItem?->item_reference ?: $reference;
-
-            $status = null;
-            $data = [];
-            $matchedTransferCode = null;
-
-            // 1. Try querying recent transfers list on Paystack
-            try {
-                $response = $api->get('transfer', ['perPage' => 25]);
-                $recentTransfers = $response['data'] ?? [];
-
-                foreach ($recentTransfers as $trf) {
-                    $trfRef = $trf['reference'] ?? '';
-                    $trfCode = $trf['transfer_code'] ?? '';
-                    $trfAmount = (int) ($trf['amount'] ?? 0);
-                    $trfAccount = $trf['recipient']['details']['account_number'] ?? ($trf['recipient']['account_number'] ?? '');
-
-                    // Match by item reference, gateway ref, transfer code, or account number + amount
-                    if (
-                        $trfRef === $itemRef
-                        || $trfRef === $reference
-                        || $trfCode === $gwRef
-                        || ($firstItem && $trfAccount === $firstItem->recipient_account_number && $trfAmount === (int) $firstItem->amount_minor)
-                    ) {
-                        $status = strtolower($trf['status'] ?? '');
-                        $matchedTransferCode = $trfCode ?: ($trf['id'] ?? null);
-                        break;
-                    }
-                }
-            } catch (\Throwable $e) {
-                Log::info('Paystack transfers list query note: ' . $e->getMessage());
-            }
-
-            // 2. If not found in list, try single transfer verify
-            if (!$status) {
-                try {
-                    $response = $api->get('transfer/verify/' . $itemRef);
-                    $data = $response['data'] ?? [];
-                    $status = strtolower($data['status'] ?? '');
-                    $matchedTransferCode = $data['transfer_code'] ?? null;
-                } catch (\Throwable $e) {
-                    if (!empty($gwRef)) {
-                        try {
-                            $response = $api->get('transfer/' . $gwRef);
-                            $data = $response['data'] ?? [];
-                            $status = strtolower($data['status'] ?? '');
-                            $matchedTransferCode = $gwRef;
-                        } catch (\Throwable $e2) {
-                            Log::info("Paystack transfer lookup note for {$gwRef}: " . $e2->getMessage());
-                        }
-                    }
-                }
-            }
-
-            if ($status === 'success' || $status === 'processing' || $status === 'pending' || $status === 'queued') {
-                $now = Wat::now();
-                $isDone = ($status === 'success' || $status === 'queued' || $status === 'pending');
-                $gwStatus = strtoupper($status ?: 'SUCCESS');
-
-                DB::transaction(function () use ($batch, $isDone, $now, $payrollRun, $actor, $matchedTransferCode, $gwStatus): void {
-                    $batch->forceFill([
-                        'gateway_batch_reference' => $matchedTransferCode ?: $batch->gateway_batch_reference,
-                        'gateway_status' => $gwStatus,
-                        'status' => $isDone ? PaymentBatch::STATUS_COMPLETED : PaymentBatch::STATUS_PROCESSING,
-                        'successful_items_count' => $batch->items->count(),
-                        'completed_at' => $isDone ? $now : null,
-                    ])->save();
-
-                    if ($isDone) {
-                        foreach ($batch->items as $item) {
-                            $item->forceFill([
-                                'gateway_reference' => $matchedTransferCode ?: $item->gateway_reference,
-                                'gateway_status' => $gwStatus,
-                                'gateway_response' => ['status' => $gwStatus, 'transfer_code' => $matchedTransferCode],
-                                'status' => PaymentBatchItem::STATUS_SUCCESSFUL,
-                                'paid_at' => $now,
-                            ])->save();
-                        }
-
-                        if ($payrollRun instanceof PayrollRun) {
-                            $payrollRun->forceFill([
-                                'status' => PayrollRun::STATUS_PAID,
-                                'paid_at' => $now,
-                            ])->save();
-                        }
-                    }
-                });
-
-                return $batch->refresh();
-            }
-        } elseif ($batch->gateway === 'monnify') {
-            $api = MonnifyApi::getInstance();
-            try {
-                $response = $api->get('api/v2/disbursements/batch/summary', [
-                    'reference' => $reference,
-                ]);
-
-                if (isset($response['requestSuccessful']) && $response['requestSuccessful'] === true) {
-                    $body = $response['responseBody'] ?? [];
-                    $status = strtoupper($body['status'] ?? '');
-                    $txList = $body['transactionList'] ?? ($body['transactions'] ?? []);
-
-                    $now = Wat::now();
-
-                    DB::transaction(function () use ($batch, $now, $payrollRun, $actor, $status, $txList): void {
-                        $successCount = 0;
-                        $failedCount = 0;
-
-                        foreach ($batch->items as $item) {
-                            $matchedTx = null;
-                            if (is_array($txList)) {
-                                foreach ($txList as $tx) {
-                                    if (is_array($tx) && (($tx['reference'] ?? null) === $item->item_reference || ($tx['destinationAccountNumber'] ?? null) === $item->recipient_account_number)) {
-                                        $matchedTx = $tx;
-                                        break;
-                                    }
-                                }
-                            }
-
-                            $txStatus = strtoupper($matchedTx['status'] ?? ($status === 'SUCCESS' ? 'SUCCESS' : 'PENDING'));
-                            $txMsg = $matchedTx['responseMessage'] ?? ($matchedTx['message'] ?? null);
-                            $isItemSuccess = ($txStatus === 'SUCCESS' || $txStatus === 'PAID');
-                            $isItemFailed = ($txStatus === 'FAILED' || $txStatus === 'REVERSED');
-
-                            if ($isItemSuccess) {
-                                $successCount++;
-                                $item->forceFill([
-                                    'status' => PaymentBatchItem::STATUS_SUCCESSFUL,
-                                    'gateway_reference' => $matchedTx['transactionReference'] ?? $item->gateway_reference,
-                                    'gateway_status' => $txStatus,
-                                    'gateway_response' => $matchedTx ?? ['status' => $txStatus, 'message' => $txMsg],
-                                    'failure_reason' => null,
-                                    'paid_at' => $now,
-                                ])->save();
-                            } elseif ($isItemFailed) {
-                                $failedCount++;
-                                $item->forceFill([
-                                    'status' => PaymentBatchItem::STATUS_FAILED,
-                                    'gateway_reference' => $matchedTx['transactionReference'] ?? $item->gateway_reference,
-                                    'gateway_status' => $txStatus,
-                                    'gateway_response' => $matchedTx ?? ['status' => $txStatus, 'message' => $txMsg],
-                                    'failure_reason' => $txMsg ?: 'Transaction failed at Monnify',
-                                    'paid_at' => null,
-                                ])->save();
-                            }
-                        }
-
-                        $batchStatus = ($failedCount === 0 && $successCount > 0 && ($status === 'SUCCESS' || $status === 'COMPLETED'))
-                            ? PaymentBatch::STATUS_COMPLETED
-                            : (($failedCount > 0 && $successCount > 0)
-                                ? PaymentBatch::STATUS_PARTIALLY_COMPLETED
-                                : (($failedCount > 0 && $successCount === 0) ? PaymentBatch::STATUS_FAILED : $batch->status));
-
-                        $batch->forceFill([
-                            'status' => $batchStatus,
-                            'gateway_status' => $status,
-                            'successful_items_count' => $successCount,
-                            'failed_items_count' => $failedCount,
-                            'completed_at' => ($batchStatus === PaymentBatch::STATUS_COMPLETED) ? $now : null,
-                        ])->save();
-
-                        if ($batchStatus === PaymentBatch::STATUS_COMPLETED && $payrollRun instanceof PayrollRun) {
-                            $payrollRun->forceFill([
-                                'status' => PayrollRun::STATUS_PAID,
-                                'paid_at' => $now,
-                            ])->save();
-                        }
-                    });
-
-                    return $batch->refresh();
-                }
-            } catch (\Throwable $e) {
-                Log::info('Monnify batch summary sync note: ' . $e->getMessage());
-            }
-        }
-
-        return $batch->refresh();
-    }
-
-    /**
-     * Revalidate all item settlement statuses directly from the payment gateway
-     * without modifying the source PayrollRun or payslips.
-     */
-    public function revalidateBatchItems(PaymentBatch $batch, User $actor): PaymentBatch
-    {
-        $batch->load(['items']);
-        $reference = $batch->gateway_batch_reference ?: $batch->batch_reference;
         $now = Wat::now();
 
-        if ($batch->gateway === 'paystack') {
-            $api = PaystackApi::getInstance();
+        $items = [];
+        foreach ($batch->items as $item) {
+            $items[] = [
+                'reference' => $item->item_reference,
+                'account_number' => $item->recipient_account_number,
+                'amount_minor' => (int) $item->amount_minor,
+                'gateway_reference' => $item->gateway_reference,
+                'status' => $item->status,
+            ];
+        }
 
-            // Fetch recent Paystack transfers to batch-match
-            $recentTransfers = [];
-            try {
-                $response = $api->get('transfer', ['perPage' => 50]);
-                $recentTransfers = $response['data'] ?? [];
-            } catch (\Throwable $e) {
-                Log::info('Paystack transfers list query in revalidation: ' . $e->getMessage());
-            }
+        $syncResult = $this->paymentService->verifyBatch(
+            batchReference: $batch->batch_reference,
+            gateway: $batch->gateway,
+            gatewayBatchReference: $batch->gateway_batch_reference,
+            items: $items,
+        );
 
-            DB::transaction(function () use ($batch, $api, $recentTransfers, $now): void {
-                $successCount = 0;
-                $failedCount = 0;
-                $latestGwStatus = $batch->gateway_status;
+        DB::transaction(function () use ($batch, $syncResult, $now, $payrollRun): void {
+            $successCount = 0;
+            $failedCount = 0;
 
-                foreach ($batch->items as $item) {
-                    $matchedTrf = null;
-
-                    // 1. Check recent transfers
-                    foreach ($recentTransfers as $trf) {
-                        $trfRef = $trf['reference'] ?? '';
-                        $trfCode = $trf['transfer_code'] ?? '';
-                        $trfAmount = (int) ($trf['amount'] ?? 0);
-                        $trfAccount = $trf['recipient']['details']['account_number'] ?? ($trf['recipient']['account_number'] ?? '');
-
-                        if (
-                            $trfRef === $item->item_reference
-                            || ($item->gateway_reference && $trfCode === $item->gateway_reference)
-                            || ($trfAccount === $item->recipient_account_number && $trfAmount === (int) $item->amount_minor)
-                        ) {
-                            $matchedTrf = $trf;
-                            break;
-                        }
+            foreach ($batch->items as $item) {
+                $itemRes = $syncResult->itemResults[$item->item_reference] ?? null;
+                if (!$itemRes) {
+                    if ($item->status === PaymentBatchItem::STATUS_SUCCESSFUL) {
+                        $successCount++;
+                    } elseif ($item->status === PaymentBatchItem::STATUS_FAILED) {
+                        $failedCount++;
                     }
-
-                    // 2. If not found in list and item has reference, try single verify
-                    if (!$matchedTrf && $item->item_reference) {
-                        try {
-                            $res = $api->get('transfer/verify/' . $item->item_reference);
-                            if (isset($res['data'])) {
-                                $matchedTrf = $res['data'];
-                            }
-                        } catch (\Throwable $e) {
-                            if ($item->gateway_reference && str_starts_with($item->gateway_reference, 'TRF_')) {
-                                try {
-                                    $res = $api->get('transfer/' . $item->gateway_reference);
-                                    if (isset($res['data'])) {
-                                        $matchedTrf = $res['data'];
-                                    }
-                                } catch (\Throwable) {}
-                            }
-                        }
-                    }
-
-                    if ($matchedTrf) {
-                        $rawStatus = strtolower($matchedTrf['status'] ?? 'processing');
-                        $itemGwStatus = strtoupper($rawStatus);
-                        $itemTrfCode = $matchedTrf['transfer_code'] ?? ($matchedTrf['id'] ?? $item->gateway_reference);
-                        $itemMsg = $matchedTrf['message'] ?? ($matchedTrf['reason'] ?? 'Paystack: ' . ucfirst($rawStatus));
-
-                        if ($rawStatus === 'success' || $rawStatus === 'successful') {
-                            $successCount++;
-                            $item->forceFill([
-                                'status' => PaymentBatchItem::STATUS_SUCCESSFUL,
-                                'gateway_reference' => $itemTrfCode,
-                                'gateway_status' => $itemGwStatus,
-                                'gateway_response' => $matchedTrf,
-                                'failure_reason' => null,
-                                'paid_at' => $item->paid_at ?? $now,
-                            ])->save();
-                        } elseif ($rawStatus === 'failed' || $rawStatus === 'reversed' || $rawStatus === 'abandoned') {
-                            $failedCount++;
-                            $item->forceFill([
-                                'status' => PaymentBatchItem::STATUS_FAILED,
-                                'gateway_reference' => $itemTrfCode,
-                                'gateway_status' => $itemGwStatus,
-                                'gateway_response' => $matchedTrf,
-                                'failure_reason' => $itemMsg,
-                                'paid_at' => null,
-                            ])->save();
-                        } else {
-                            $item->forceFill([
-                                'status' => PaymentBatchItem::STATUS_INITIALIZED,
-                                'gateway_reference' => $itemTrfCode,
-                                'gateway_status' => $itemGwStatus,
-                                'gateway_response' => $matchedTrf,
-                            ])->save();
-                        }
-
-                        $latestGwStatus = $itemGwStatus;
-                    } else {
-                        if ($item->status === PaymentBatchItem::STATUS_SUCCESSFUL) {
-                            $successCount++;
-                        } elseif ($item->status === PaymentBatchItem::STATUS_FAILED) {
-                            $failedCount++;
-                        }
-                    }
+                    continue;
                 }
 
-                $newBatchStatus = ($failedCount === 0 && $successCount === $batch->items->count())
+                $status = $itemRes['status'] ?? $item->status;
+                $gwStatus = $itemRes['gateway_status'] ?? $item->gateway_status;
+                $gwRef = $itemRes['gateway_reference'] ?? $item->gateway_reference;
+                $msg = $itemRes['message'] ?? null;
+                $raw = $itemRes['raw'] ?? $itemRes;
+
+                if ($status === 'successful') {
+                    $successCount++;
+                    $itemPaidAt = $item->paid_at ?? $now;
+                    $item->forceFill([
+                        'status' => PaymentBatchItem::STATUS_SUCCESSFUL,
+                        'gateway_reference' => $gwRef,
+                        'gateway_status' => $gwStatus,
+                        'gateway_response' => $raw,
+                        'failure_reason' => null,
+                        'paid_at' => $itemPaidAt,
+                    ])->save();
+
+                    // Settle payslip for this employee
+                    if ($payrollRun instanceof PayrollRun && $item->recipient_id) {
+                        Payslip::query()
+                            ->where('payroll_run_id', $payrollRun->id)
+                            ->where('employee_id', $item->recipient_id)
+                            ->where('status', '!=', Payslip::STATUS_PAID)
+                            ->update([
+                                'status' => Payslip::STATUS_PAID,
+                                'paid_at' => $itemPaidAt,
+                            ]);
+                    }
+                } elseif ($status === 'failed') {
+                    $failedCount++;
+                    $item->forceFill([
+                        'status' => PaymentBatchItem::STATUS_FAILED,
+                        'gateway_reference' => $gwRef,
+                        'gateway_status' => $gwStatus,
+                        'gateway_response' => $raw,
+                        'failure_reason' => $msg ?: 'Transaction failed at gateway',
+                        'paid_at' => null,
+                    ])->save();
+                } else {
+                    $item->forceFill([
+                        'status' => PaymentBatchItem::STATUS_INITIALIZED,
+                        'gateway_reference' => $gwRef,
+                        'gateway_status' => $gwStatus,
+                        'gateway_response' => $raw,
+                    ])->save();
+                }
+            }
+
+            $totalItems = $batch->items->count();
+            $batchStatus = match ($syncResult->status) {
+                'completed' => PaymentBatch::STATUS_COMPLETED,
+                'failed' => PaymentBatch::STATUS_FAILED,
+                'partially_completed' => PaymentBatch::STATUS_PARTIALLY_COMPLETED,
+                default => ($failedCount === 0 && $successCount === $totalItems && $totalItems > 0)
                     ? PaymentBatch::STATUS_COMPLETED
                     : (($successCount > 0 && $failedCount > 0)
                         ? PaymentBatch::STATUS_PARTIALLY_COMPLETED
-                        : (($failedCount > 0 && $successCount === 0) ? PaymentBatch::STATUS_FAILED : $batch->status));
+                        : (($failedCount === $totalItems && $totalItems > 0) ? PaymentBatch::STATUS_FAILED : PaymentBatch::STATUS_PROCESSING)),
+            };
 
-                $batch->forceFill([
-                    'status' => $newBatchStatus,
-                    'gateway_status' => $latestGwStatus ?: $batch->gateway_status,
-                    'successful_items_count' => $successCount,
-                    'failed_items_count' => $failedCount,
-                    'completed_at' => ($newBatchStatus === PaymentBatch::STATUS_COMPLETED) ? ($batch->completed_at ?? $now) : null,
-                ])->save();
-            });
-        } elseif ($batch->gateway === 'monnify') {
-            $api = MonnifyApi::getInstance();
-            try {
-                $response = $api->get('api/v2/disbursements/batch/summary', [
-                    'reference' => $reference,
-                ]);
+            $batch->forceFill([
+                'status' => $batchStatus,
+                'gateway_status' => $syncResult->gatewayStatus ?: $batch->gateway_status,
+                'successful_items_count' => $successCount,
+                'failed_items_count' => $failedCount,
+                'completed_at' => ($batchStatus === PaymentBatch::STATUS_COMPLETED) ? ($batch->completed_at ?? $now) : null,
+            ])->save();
 
-                if (isset($response['requestSuccessful']) && $response['requestSuccessful'] === true) {
-                    $body = $response['responseBody'] ?? [];
-                    $status = strtoupper($body['status'] ?? '');
-                    $txList = $body['transactionList'] ?? ($body['transactions'] ?? []);
+            // Synchronize overall PayrollRun status if all payslips are settled
+            if ($payrollRun instanceof PayrollRun) {
+                $unpaidCount = Payslip::query()
+                    ->where('payroll_run_id', $payrollRun->id)
+                    ->where('status', '!=', Payslip::STATUS_PAID)
+                    ->count();
 
-                    DB::transaction(function () use ($batch, $now, $status, $txList): void {
-                        $successCount = 0;
-                        $failedCount = 0;
-
-                        foreach ($batch->items as $item) {
-                            $matchedTx = null;
-                            if (is_array($txList)) {
-                                foreach ($txList as $tx) {
-                                    if (is_array($tx) && (($tx['reference'] ?? null) === $item->item_reference || ($tx['destinationAccountNumber'] ?? null) === $item->recipient_account_number)) {
-                                        $matchedTx = $tx;
-                                        break;
-                                    }
-                                }
-                            }
-
-                            $txStatus = strtoupper($matchedTx['status'] ?? ($status === 'SUCCESS' ? 'SUCCESS' : 'PENDING'));
-                            $txMsg = $matchedTx['responseMessage'] ?? ($matchedTx['message'] ?? null);
-                            $isItemSuccess = ($txStatus === 'SUCCESS' || $txStatus === 'PAID');
-                            $isItemFailed = ($txStatus === 'FAILED' || $txStatus === 'REVERSED');
-
-                            if ($isItemSuccess) {
-                                $successCount++;
-                                $item->forceFill([
-                                    'status' => PaymentBatchItem::STATUS_SUCCESSFUL,
-                                    'gateway_reference' => $matchedTx['transactionReference'] ?? $item->gateway_reference,
-                                    'gateway_status' => $txStatus,
-                                    'gateway_response' => $matchedTx ?? ['status' => $txStatus, 'message' => $txMsg],
-                                    'failure_reason' => null,
-                                    'paid_at' => $item->paid_at ?? $now,
-                                ])->save();
-                            } elseif ($isItemFailed) {
-                                $failedCount++;
-                                $item->forceFill([
-                                    'status' => PaymentBatchItem::STATUS_FAILED,
-                                    'gateway_reference' => $matchedTx['transactionReference'] ?? $item->gateway_reference,
-                                    'gateway_status' => $txStatus,
-                                    'gateway_response' => $matchedTx ?? ['status' => $txStatus, 'message' => $txMsg],
-                                    'failure_reason' => $txMsg ?: 'Transaction failed at Monnify',
-                                    'paid_at' => null,
-                                ])->save();
-                            } else {
-                                if ($item->status === PaymentBatchItem::STATUS_SUCCESSFUL) {
-                                    $successCount++;
-                                } elseif ($item->status === PaymentBatchItem::STATUS_FAILED) {
-                                    $failedCount++;
-                                }
-                            }
-                        }
-
-                        $newBatchStatus = ($failedCount === 0 && $successCount === $batch->items->count())
-                            ? PaymentBatch::STATUS_COMPLETED
-                            : (($successCount > 0 && $failedCount > 0)
-                                ? PaymentBatch::STATUS_PARTIALLY_COMPLETED
-                                : (($failedCount > 0 && $successCount === 0) ? PaymentBatch::STATUS_FAILED : $batch->status));
-
-                        $batch->forceFill([
-                            'status' => $newBatchStatus,
-                            'gateway_status' => $status ?: $batch->gateway_status,
-                            'successful_items_count' => $successCount,
-                            'failed_items_count' => $failedCount,
-                            'completed_at' => ($newBatchStatus === PaymentBatch::STATUS_COMPLETED) ? ($batch->completed_at ?? $now) : null,
-                        ])->save();
-                    });
+                if ($unpaidCount === 0) {
+                    $payrollRun->forceFill([
+                        'status' => PayrollRun::STATUS_PAID,
+                        'paid_at' => $payrollRun->paid_at ?? $now,
+                    ])->save();
                 }
-            } catch (\Throwable $e) {
-                Log::info('Monnify batch item revalidation note: ' . $e->getMessage());
             }
-        }
+        });
 
         return $batch->refresh();
     }
