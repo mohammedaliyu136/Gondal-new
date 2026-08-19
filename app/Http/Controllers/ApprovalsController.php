@@ -63,11 +63,28 @@ class ApprovalsController extends Controller
             'comment' => ['nullable', 'string', 'max:2000'],
         ]);
 
+        $stage = $instance->currentStage;
+        $actionHandler = $stage?->stageActionHandler();
+        $actionPayload = null;
+
+        if ($actionHandler !== null) {
+            $actionPayload = $actionHandler->validate($request, $instance, $stage);
+            $actionHandler->execute($instance, $stage, $this->currentUser(), $actionPayload);
+            // Refresh instance in case stage action changed amounts
+            $instance->refresh();
+        }
+
         $amount = ($validated['approved_amount'] ?? null) === null
             ? null
             : Money::fromMajor($validated['approved_amount']);
 
-        $this->engine->approve($instance, $this->currentUser(), $amount, $validated['comment'] ?? null);
+        $this->engine->approve(
+            $instance,
+            $this->currentUser(),
+            $amount,
+            $validated['comment'] ?? null,
+            $actionPayload,
+        );
 
         $this->syncSubject($instance->fresh(['subject']));
 

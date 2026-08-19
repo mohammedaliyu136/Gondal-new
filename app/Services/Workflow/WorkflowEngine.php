@@ -92,12 +92,28 @@ class WorkflowEngine
 
             // The submission stage is satisfied by the act of submitting.
             if ($submission !== null) {
+                $submissionPayload = null;
+                if ($subject instanceof \App\Models\Requisition) {
+                    $submissionPayload = [
+                        'items' => $subject->items->map(fn ($it) => [
+                            'item' => $it->item,
+                            'purpose' => $it->purpose,
+                            'quantity' => (float) $it->quantity,
+                            'unit' => $it->unit,
+                            'unit_price_minor' => (int) $it->unit_price_minor,
+                            'amount_minor' => (int) $it->amount_minor,
+                            'status' => 'requested',
+                        ])->all(),
+                    ];
+                }
+
                 WorkflowAction::query()->create([
                     'workflow_instance_id' => $instance->getKey(),
                     'workflow_stage_id' => $submission->getKey(),
                     'actor_user_id' => $requester->getKey(),
                     'action' => WorkflowAction::ACTION_SUBMIT,
                     'amount_minor' => $amountMinor,
+                    'action_payload' => $submissionPayload,
                     'acted_at' => Wat::now(),
                 ]);
             }
@@ -145,8 +161,13 @@ class WorkflowEngine
     /**
      * BR-17 / BR-18 / BR-22 — approve the current stage.
      */
-    public function approve(WorkflowInstance $instance, User $actor, ?int $amountMinor = null, ?string $comment = null): WorkflowInstance
-    {
+    public function approve(
+        WorkflowInstance $instance,
+        User $actor,
+        ?int $amountMinor = null,
+        ?string $comment = null,
+        ?array $actionPayload = null,
+    ): WorkflowInstance {
         $stage = $this->guardActionable($instance, $actor);
         $subject = $this->subjectOf($instance);
 
@@ -212,7 +233,7 @@ class WorkflowEngine
 
         $delegation = $this->activeDelegationFor($actor, $stage);
 
-        DB::transaction(function () use ($instance, $subject, $stage, $actor, $approved, $comment, $delegation): void {
+        DB::transaction(function () use ($instance, $subject, $stage, $actor, $approved, $comment, $delegation, $actionPayload): void {
             WorkflowAction::query()->create([
                 'workflow_instance_id' => $instance->getKey(),
                 'workflow_stage_id' => $stage->getKey(),
@@ -223,6 +244,7 @@ class WorkflowEngine
                 'action' => WorkflowAction::ACTION_APPROVE,
                 'amount_minor' => $approved,
                 'comment' => $comment,
+                'action_payload' => $actionPayload,
                 'acted_at' => Wat::now(),
             ]);
 

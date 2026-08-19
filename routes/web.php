@@ -42,6 +42,7 @@ use App\Http\Controllers\Milk\ReconciliationController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\Purchases\RequisitionController;
+use App\Http\Controllers\Purchases\ServiceProviderController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\Shop\InventoryController;
 use App\Http\Controllers\Shop\ProductCategoryController;
@@ -284,9 +285,27 @@ Route::middleware(['auth', 'session.authenticate', 'account.usable', 'session.to
         Route::post('/requisitions/{requisition}/submit', [RequisitionController::class, 'submit'])->name('requisitions.submit');
         // BR-20 — resubmission starts a new instance.
         Route::post('/requisitions/{requisition}/resubmit', [RequisitionController::class, 'resubmit'])->name('requisitions.resubmit');
-    // §14 Phase 7 — an approval is a permission to spend, not a spend.
-    Route::post('/requisitions/{requisition}/spend', [RequisitionController::class, 'spend'])
-        ->middleware('permission:purchase.requisitions.spend')->name('requisitions.spend');
+        // §14 Phase 7 — an approval is a permission to spend, not a spend.
+        Route::post('/requisitions/{requisition}/spend', [RequisitionController::class, 'spend'])
+            ->middleware('permission:purchase.requisitions.spend')->name('requisitions.spend');
+    });
+
+    Route::middleware('permission:purchase.service_providers.view')->group(function (): void {
+        Route::get('/purchases/service-providers', [ServiceProviderController::class, 'index'])->name('service-providers.index');
+        Route::get('/purchases/service-providers/banks', [ServiceProviderController::class, 'banks'])->name('service-providers.banks');
+    });
+
+    Route::middleware('permission:purchase.service_providers.create')->group(function (): void {
+        Route::post('/purchases/service-providers', [ServiceProviderController::class, 'store'])->name('service-providers.store');
+        Route::post('/purchases/service-providers/verify-bank', [ServiceProviderController::class, 'verifyBank'])->name('service-providers.verify-bank');
+    });
+
+    Route::middleware('permission:purchase.service_providers.edit')->group(function (): void {
+        Route::put('/purchases/service-providers/{serviceProvider}', [ServiceProviderController::class, 'update'])->name('service-providers.update');
+    });
+
+    Route::middleware('permission:purchase.service_providers.delete')->group(function (): void {
+        Route::delete('/purchases/service-providers/{serviceProvider}', [ServiceProviderController::class, 'destroy'])->name('service-providers.destroy');
     });
 
     /* -------------------------- Community --------------------------- */

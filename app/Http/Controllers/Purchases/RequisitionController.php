@@ -239,6 +239,13 @@ class RequisitionController extends Controller
     /** @return array<string, mixed> */
     private function validatePayload(Request $request): array
     {
+        if ($request->has('items') && is_array($request->input('items'))) {
+            $filteredItems = array_values(array_filter($request->input('items'), function ($row) {
+                return is_array($row) && trim($row['item'] ?? '') !== '';
+            }));
+            $request->merge(['items' => $filteredItems]);
+        }
+
         return $request->validate([
             'title' => ['required', 'string', 'max:255'],
             'department_id' => ['nullable', 'exists:departments,id'],

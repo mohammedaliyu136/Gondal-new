@@ -11,9 +11,9 @@ use App\Models\WorkflowStage;
 use App\Services\Workflow\SubjectSynchroniser;
 use App\Services\Workflow\WorkflowEngine;
 use Illuminate\Database\Eloquent\Model;
-use Tests\TestCase;
+use Tests\GondalTestCase;
 
-class DynamicWorkflowTest extends TestCase
+class DynamicWorkflowTest extends GondalTestCase
 {
     public function test_can_create_dynamic_workflow_and_stages(): void
     {

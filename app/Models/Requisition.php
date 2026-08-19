@@ -40,7 +40,7 @@ class Requisition extends Model implements Scopeable
 
     protected $fillable = [
         'reference', 'requester_user_id', 'department_id', 'title', 'category',
-        'urgency', 'needed_by', 'suggested_vendor', 'total_minor',
+        'urgency', 'needed_by', 'suggested_vendor', 'service_provider_id', 'total_minor',
         'approved_total_minor', 'workflow_instance_id', 'status',
         'submitted_at', 'decided_at', 'revises_requisition_id',
         'is_test', 'created_by_user_id',
@@ -78,6 +78,11 @@ class Requisition extends Model implements Scopeable
     public function requester(): BelongsTo
     {
         return $this->belongsTo(User::class, 'requester_user_id');
+    }
+
+    public function serviceProvider(): BelongsTo
+    {
+        return $this->belongsTo(ServiceProvider::class);
     }
 
     /**

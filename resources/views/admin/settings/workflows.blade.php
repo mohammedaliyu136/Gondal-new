@@ -160,6 +160,9 @@
                       <td class="num font-bold">{{ $stage->position }}</td>
                       <td>
                         <span class="font-bold">{{ $stage->name }}</span>
+                        @if ($stage->hasStageAction() && $stage->stageActionHandler())
+                          <div class="cell-sub"><span class="badge warning plain">&#9889; {{ $stage->stageActionHandler()->label() }}</span></div>
+                        @endif
                         @if ($stage->is_submission)
                           <div class="cell-sub"><span class="badge info plain">Satisfied by submission</span></div>
                         @endif
@@ -475,6 +478,30 @@
                 <input type="text" id="as-perm" name="required_permission" placeholder="e.g. purchase.approve.audit" />
               </div>
               <div class="field full">
+                <label for="as-stage-action">Stage Action / Sub-Event Trigger</label>
+                <select id="as-stage-action" name="stage_action" style="width:100%; max-width:100%;"
+                        onchange="updateStageActionCard(this, 'as-action-info-box', 'as-action-title', 'as-action-desc', 'as-action-applies')">
+                  <option value="" data-description="Standard approval step without custom sub-events." data-applies="All Modules">
+                    -- Standard Approval (No Sub-Event) --
+                  </option>
+                  @foreach ($availableActions as $actionHandler)
+                    <option value="{{ $actionHandler->key() }}"
+                            data-title="{{ $actionHandler->label() }}"
+                            data-description="{{ $actionHandler->description() }}"
+                            data-applies="{{ implode(', ', array_map(fn($t) => \Illuminate\Support\Str::headline($t), $actionHandler->appliesTo())) }}">
+                      {{ $actionHandler->label() }}
+                    </option>
+                  @endforeach
+                </select>
+                <div id="as-action-info-box" style="display:none; margin-top:8px; background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px; padding:10px 12px;">
+                  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                    <strong id="as-action-title" style="color:#1e40af; font-size:12.5px;"></strong>
+                    <span id="as-action-applies" class="badge info plain" style="font-size:11px;"></span>
+                  </div>
+                  <div id="as-action-desc" style="font-size:12px; color:#334155; line-height:1.4;"></div>
+                </div>
+              </div>
+              <div class="field full">
                 <div class="stack" style="gap:8px">
                   <label class="check-label">
                     <input type="checkbox" name="can_reject" value="1" checked />
@@ -550,6 +577,34 @@
                 <div class="field">
                   <label for="es-{{ $stage->id }}-perm">Optional Permission Key</label>
                   <input type="text" id="es-{{ $stage->id }}-perm" name="required_permission" value="{{ $stage->required_permission }}" />
+                </div>
+                <div class="field full">
+                  <label for="es-{{ $stage->id }}-action">Stage Action / Sub-Event Trigger</label>
+                  <select id="es-{{ $stage->id }}-action" name="stage_action" style="width:100%; max-width:100%;"
+                          onchange="updateStageActionCard(this, 'es-{{ $stage->id }}-info-box', 'es-{{ $stage->id }}-title', 'es-{{ $stage->id }}-desc', 'es-{{ $stage->id }}-applies')">
+                    <option value="" data-description="Standard approval step without custom sub-events." data-applies="All Modules">
+                      -- Standard Approval (No Sub-Event) --
+                    </option>
+                    @foreach ($availableActions as $actionHandler)
+                      <option value="{{ $actionHandler->key() }}"
+                              data-title="{{ $actionHandler->label() }}"
+                              data-description="{{ $actionHandler->description() }}"
+                              data-applies="{{ implode(', ', array_map(fn($t) => \Illuminate\Support\Str::headline($t), $actionHandler->appliesTo())) }}"
+                              @selected($stage->stage_action === $actionHandler->key())>
+                        {{ $actionHandler->label() }}
+                      </option>
+                    @endforeach
+                  </select>
+                  @php($activeAction = $stage->stageActionHandler())
+                  <div id="es-{{ $stage->id }}-info-box" style="{{ $activeAction ? 'display:block;' : 'display:none;' }} margin-top:8px; background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px; padding:10px 12px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                      <strong id="es-{{ $stage->id }}-title" style="color:#1e40af; font-size:12.5px;">{{ $activeAction?->label() }}</strong>
+                      <span id="es-{{ $stage->id }}-applies" class="badge info plain" style="font-size:11px;">
+                        @if ($activeAction) Applies to: {{ implode(', ', array_map(fn($t) => \Illuminate\Support\Str::headline($t), $activeAction->appliesTo())) }} @endif
+                      </span>
+                    </div>
+                    <div id="es-{{ $stage->id }}-desc" style="font-size:12px; color:#334155; line-height:1.4;">{{ $activeAction?->description() }}</div>
+                  </div>
                 </div>
                 <div class="field full">
                   <div class="stack" style="gap:8px">
@@ -671,4 +726,29 @@
       </div>
     @endforeach
   @endif
+
+  <script>
+    window.updateStageActionCard = function(selectEl, boxId, titleId, descId, appliesId) {
+      const box = document.getElementById(boxId);
+      const titleEl = document.getElementById(titleId);
+      const descEl = document.getElementById(descId);
+      const appliesEl = document.getElementById(appliesId);
+      if (!selectEl || !box) return;
+
+      const opt = selectEl.options[selectEl.selectedIndex];
+      if (!opt || !selectEl.value) {
+        box.style.display = 'none';
+        return;
+      }
+
+      if (titleEl) titleEl.textContent = opt.getAttribute('data-title') || opt.text;
+      if (descEl) descEl.textContent = opt.getAttribute('data-description') || '';
+      if (appliesEl) {
+        const applies = opt.getAttribute('data-applies');
+        appliesEl.textContent = applies ? 'Applies to: ' + applies : '';
+        appliesEl.style.display = applies ? 'inline-flex' : 'none';
+      }
+      box.style.display = 'block';
+    };
+  </script>
 @endsection

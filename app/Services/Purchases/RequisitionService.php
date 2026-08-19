@@ -64,6 +64,20 @@ class RequisitionService
             ]);
 
             $this->replaceItems($requisition, $items);
+            $requisition->refresh();
+
+            $this->audit->created(
+                $requisition,
+                sprintf('%s raised with %d item(s) (%s)', $requisition->reference, count($items), Money::format((int) $requisition->total_minor)),
+                'Purchases',
+                [
+                    'title' => $requisition->title,
+                    'items_count' => count($items),
+                    'total_minor' => (int) $requisition->total_minor,
+                    'items' => $items,
+                ],
+                $requester,
+            );
 
             return $requisition;
         });

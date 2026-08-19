@@ -30,6 +30,7 @@ class WorkflowStage extends Model
     protected $fillable = [
         'workflow_id', 'position', 'name', 'approving_role_id', 'required_permission',
         'condition_type', 'condition_value', 'sla_hours', 'can_reject', 'is_submission',
+        'stage_action', 'stage_action_config',
     ];
 
     protected function casts(): array
@@ -39,7 +40,22 @@ class WorkflowStage extends Model
             'sla_hours' => 'integer',
             'can_reject' => 'boolean',
             'is_submission' => 'boolean',
+            'stage_action_config' => 'array',
         ];
+    }
+
+    public function hasStageAction(): bool
+    {
+        return ! empty($this->stage_action);
+    }
+
+    public function stageActionHandler(): ?\App\Services\Workflow\Contracts\WorkflowStageActionHandler
+    {
+        if (! $this->hasStageAction()) {
+            return null;
+        }
+
+        return app(\App\Services\Workflow\StageActionRegistry::class)->get($this->stage_action);
     }
 
     public function workflow(): BelongsTo

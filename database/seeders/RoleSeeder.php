@@ -530,6 +530,7 @@ class RoleSeeder extends Seeder
                     // catalogue rewrites permission_role on every seed, so a grant
                     // that lives only in a migration is taken straight back off.
                     'purchase.requisitions' => ['view', 'approve', 'spend'],
+                    'purchase.service_providers' => '*',
                     'purchase.approve.accounts' => ['approve'],
                     'hr.payroll' => '*',
                     'hr.employees' => ['view'],

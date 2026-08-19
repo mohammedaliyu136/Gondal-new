@@ -116,7 +116,15 @@
   <div class="split">
     <div class="stack">
       <div class="card">
-        <div class="card-head"><div><h3>Line Items</h3></div></div>
+        <div class="card-head">
+          <div>
+            <h3>Line Items</h3>
+            <p>Active items authorized on this requisition</p>
+          </div>
+          @if ($requisition->approved_total_minor !== null && $requisition->approved_total_minor !== $requisition->total_minor)
+            <span class="badge warning plain">Adjusted in Approval</span>
+          @endif
+        </div>
         <div class="card-body flush">
           <div class="table-wrap">
             <table>
@@ -146,6 +154,89 @@
           </div>
         </div>
       </div>
+
+      {{-- Item Change Log & Decision History across Approval Stages --}}
+      @if ($instance && $instance->actions->contains(fn ($a) => !empty($a->action_payload['items']) || !empty($a->action_payload['rejected_items'])))
+        <div class="card">
+          <div class="card-head" style="background:#eff6ff; border-bottom:1px solid #bfdbfe;">
+            <div>
+              <h3 style="color:#1e40af; margin:0;">Item Change &amp; Modification History</h3>
+              <p style="color:#475569; margin:0;">Detailed tracking of item quantities, price adjustments, and accept/reject decisions made during review</p>
+            </div>
+          </div>
+          <div class="card-body flush">
+            @foreach ($instance->actions->filter(fn ($a) => !empty($a->action_payload['items']) || !empty($a->action_payload['rejected_items'])) as $adjAction)
+              <div style="padding:14px 16px; border-bottom:1px solid #f1f5f9;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                  <div>
+                    <strong style="font-size:0.95rem; color:#0f172a;">{{ $adjAction->stage?->name ?? 'Review Stage' }}</strong>
+                    <span style="color:#64748b; font-size:0.85rem;"> &bull; by {{ $adjAction->actor?->name }} ({{ $adjAction->actor?->primaryRoleLabel() ?? 'Approver' }})</span>
+                  </div>
+                  <span class="hint">{{ \App\Support\Wat::relative($adjAction->acted_at) }}</span>
+                </div>
+
+                <div class="table-wrap">
+                  <table class="table" style="font-size:0.85rem; margin:0;">
+                    <thead>
+                      <tr style="background:#f8fafc;">
+                        <th style="width:14%;">Decision</th>
+                        <th style="width:32%;">Item &amp; Purpose</th>
+                        <th style="width:12%;" class="num">Approved Qty</th>
+                        <th style="width:10%;">Unit</th>
+                        <th style="width:16%;" class="num">Est. Unit Price</th>
+                        <th style="width:16%;" class="num">Approved Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @foreach ($adjAction->action_payload['items'] ?? [] as $actItem)
+                        <tr>
+                          <td><span class="badge success plain" style="font-size:11px;">&#10003; Accepted</span></td>
+                          <td>
+                            <strong>{{ $actItem['item'] }}</strong>
+                            @if (!empty($actItem['purpose']))
+                              <div style="font-size:0.75rem; color:#64748b;">{{ $actItem['purpose'] }}</div>
+                            @endif
+                          </td>
+                          <td class="num font-bold">{{ rtrim(rtrim((string) ($actItem['quantity'] ?? 0), '0'), '.') }}</td>
+                          <td>{{ $actItem['unit'] ?? '—' }}</td>
+                          <td class="num">{{ \App\Support\Money::format($actItem['unit_price_minor'] ?? 0) }}</td>
+                          <td class="num font-bold" style="color:#0f172a;">
+                            {{ \App\Support\Money::format((int) round(($actItem['quantity'] ?? 1) * ($actItem['unit_price_minor'] ?? 0))) }}
+                          </td>
+                        </tr>
+                      @endforeach
+
+                      @foreach ($adjAction->action_payload['rejected_items'] ?? [] as $rejItem)
+                        <tr style="background:#fef2f2; opacity:0.85;">
+                          <td><span class="badge danger plain" style="font-size:11px;">&#10007; Rejected</span></td>
+                          <td style="text-decoration:line-through;">
+                            <strong>{{ $rejItem['item'] }}</strong>
+                            @if (!empty($rejItem['purpose']))
+                              <div style="font-size:0.75rem; color:#64748b;">{{ $rejItem['purpose'] }}</div>
+                            @endif
+                          </td>
+                          <td class="num font-bold" style="text-decoration:line-through;">{{ rtrim(rtrim((string) ($rejItem['quantity'] ?? 0), '0'), '.') }}</td>
+                          <td>{{ $rejItem['unit'] ?? '—' }}</td>
+                          <td class="num" style="text-decoration:line-through;">{{ \App\Support\Money::format($rejItem['unit_price_minor'] ?? 0) }}</td>
+                          <td class="num text-danger font-bold">Declined (₦0.00)</td>
+                        </tr>
+                      @endforeach
+                    </tbody>
+                    <tfoot>
+                      <tr style="background:#f8fafc; font-weight:bold;">
+                        <td colspan="5" style="text-align:right;">Total at this Stage:</td>
+                        <td class="num font-bold" style="color:#1e40af;">
+                          {{ \App\Support\Money::format($adjAction->amount_minor) }}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </div>
+            @endforeach
+          </div>
+        </div>
+      @endif
 
       @if ($instance)
         <div class="card">
@@ -216,6 +307,64 @@
                     @if ($action->comment) &middot; &ldquo;{{ $action->comment }}&rdquo; @endif
                   </div>
                   <div class="tl-time">{{ \App\Support\Wat::relative($action->acted_at) }}</div>
+
+                  @if (!empty($action->action_payload))
+                    @php($payload = $action->action_payload)
+                    <div style="margin-top:10px; padding:10px 12px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; font-size:12px;">
+                      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                        <strong style="color:#1e293b;">Line Item Decisions &amp; Adjustments:</strong>
+                        @if (!empty($payload['rejected_items']))
+                          <span class="badge danger plain" style="font-size:11px;">{{ count($payload['rejected_items']) }} item(s) rejected</span>
+                        @endif
+                      </div>
+                      <div class="table-wrap">
+                        <table class="table" style="font-size:12px; margin:0;">
+                          <thead>
+                            <tr style="background:#edf2f7;">
+                              <th>Decision</th>
+                              <th>Item &amp; Purpose</th>
+                              <th class="num">Qty</th>
+                              <th>Unit</th>
+                              <th class="num">Unit Price</th>
+                              <th class="num">Subtotal</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            @foreach ($payload['items'] ?? [] as $pItem)
+                              <tr>
+                                <td><span class="badge success plain" style="font-size:10.5px;">&#10003; Accepted</span></td>
+                                <td>
+                                  <strong>{{ $pItem['item'] }}</strong>
+                                  @if (!empty($pItem['purpose']))
+                                    <div style="font-size:11px; color:#64748b;">{{ $pItem['purpose'] }}</div>
+                                  @endif
+                                </td>
+                                <td class="num">{{ rtrim(rtrim((string) $pItem['quantity'], '0'), '.') }}</td>
+                                <td>{{ $pItem['unit'] ?? '—' }}</td>
+                                <td class="num">{{ \App\Support\Money::format($pItem['unit_price_minor'] ?? 0) }}</td>
+                                <td class="num font-bold">{{ \App\Support\Money::format((int) round(($pItem['quantity'] ?? 1) * ($pItem['unit_price_minor'] ?? 0))) }}</td>
+                              </tr>
+                            @endforeach
+                            @foreach ($payload['rejected_items'] ?? [] as $rItem)
+                              <tr style="background:#fef2f2; opacity:0.85;">
+                                <td><span class="badge danger plain" style="font-size:10.5px;">&#10007; Rejected</span></td>
+                                <td style="text-decoration:line-through;">
+                                  <strong>{{ $rItem['item'] }}</strong>
+                                  @if (!empty($rItem['purpose']))
+                                    <div style="font-size:11px; color:#64748b;">{{ $rItem['purpose'] }}</div>
+                                  @endif
+                                </td>
+                                <td class="num">{{ rtrim(rtrim((string) $rItem['quantity'], '0'), '.') }}</td>
+                                <td>{{ $rItem['unit'] ?? '—' }}</td>
+                                <td class="num">{{ \App\Support\Money::format($rItem['unit_price_minor'] ?? 0) }}</td>
+                                <td class="num text-danger font-bold">Declined</td>
+                              </tr>
+                            @endforeach
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  @endif
                 </div>
               @endforeach
             </div>

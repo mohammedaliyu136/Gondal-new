@@ -355,6 +355,9 @@ class SettingsController extends Controller
                                 ->get(),
                         ],
                     ]),
+            'availableActions' => $selected === null
+                ? collect()
+                : app(\App\Services\Workflow\StageActionRegistry::class)->forAppliesTo($selected->applies_to),
             'recentChanges' => AuditEntry::query()
                 ->where('module', 'Settings')
                 ->latest('occurred_at')
@@ -473,6 +476,7 @@ class SettingsController extends Controller
             'sla_hours' => ['nullable', 'integer', 'min:1', 'max:720'],
             'can_reject' => ['nullable', 'boolean'],
             'is_submission' => ['nullable', 'boolean'],
+            'stage_action' => ['nullable', 'string', 'max:100'],
         ]);
 
         $isSubmission = $request->boolean('is_submission');
@@ -498,6 +502,7 @@ class SettingsController extends Controller
             'sla_hours' => $validated['sla_hours'] ?? null,
             'can_reject' => $isSubmission ? false : $request->boolean('can_reject', true),
             'is_submission' => $isSubmission,
+            'stage_action' => $validated['stage_action'] ?: null,
         ]);
 
         $this->audit->created(
@@ -524,6 +529,7 @@ class SettingsController extends Controller
             'sla_hours' => ['nullable', 'integer', 'min:1', 'max:720'],
             'can_reject' => ['nullable', 'boolean'],
             'is_submission' => ['nullable', 'boolean'],
+            'stage_action' => ['nullable', 'string', 'max:100'],
         ]);
 
         $isSubmission = $request->boolean('is_submission');
@@ -542,6 +548,7 @@ class SettingsController extends Controller
         $before = $stage->only([
             'position', 'name', 'approving_role_id', 'required_permission',
             'condition_type', 'condition_value', 'sla_hours', 'can_reject', 'is_submission',
+            'stage_action',
         ]);
 
         $stage->fill([
@@ -554,6 +561,7 @@ class SettingsController extends Controller
             'sla_hours' => $validated['sla_hours'] ?? null,
             'can_reject' => $isSubmission ? false : $request->boolean('can_reject', true),
             'is_submission' => $isSubmission,
+            'stage_action' => $validated['stage_action'] ?: null,
         ])->save();
 
         $this->audit->edited(

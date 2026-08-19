@@ -28,7 +28,7 @@ class WorkflowAction extends Model
     protected $fillable = [
         'workflow_instance_id', 'workflow_stage_id', 'actor_user_id',
         'on_behalf_of_user_id', 'delegation_id', 'action', 'amount_minor',
-        'reason_id', 'comment', 'acted_at',
+        'reason_id', 'comment', 'action_payload', 'acted_at',
     ];
 
     protected function casts(): array
@@ -36,6 +36,7 @@ class WorkflowAction extends Model
         return [
             'acted_at' => 'datetime',
             'amount_minor' => 'integer',
+            'action_payload' => 'array',
         ];
     }
 

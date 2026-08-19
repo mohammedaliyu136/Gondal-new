@@ -111,7 +111,7 @@
   @foreach ($queue as $instance)
     <div id="modal-act-{{ $instance->id }}" class="modal">
       <a href="#" class="modal-overlay"></a>
-      <div class="modal-dialog">
+      <div class="modal-dialog {{ $instance->currentStage?->hasStageAction() ? 'wide' : '' }}">
         <div class="modal-head">
           <div>
             <h3>{{ $instance->subject?->reference ?? 'Approval' }} &mdash; {{ $instance->currentStage?->name }}</h3>
@@ -147,6 +147,11 @@
           <input type="hidden" name="_modal" value="modal-act-{{ $instance->id }}" />
           <div class="modal-body">
             @include('partials.modal-errors', ['modal' => 'modal-act-'.$instance->id.''])
+
+            @if ($instance->currentStage?->hasStageAction() && $instance->currentStage?->stageActionHandler())
+              {!! $instance->currentStage->stageActionHandler()->renderForm($instance, $instance->currentStage) !!}
+            @endif
+
             <div class="form-grid">
               <div class="field">
                 <label for="ap-{{ $instance->id }}-amount">Approved amount (₦)</label>

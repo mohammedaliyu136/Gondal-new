@@ -15,7 +15,14 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $this->app->singleton(\App\Services\Workflow\StageActionRegistry::class, function ($app) {
+            $registry = new \App\Services\Workflow\StageActionRegistry();
+            $registry->register($app->make(\App\Services\Workflow\Actions\RequisitionAdjustItemsAction::class));
+            $registry->register($app->make(\App\Services\Workflow\Actions\RequisitionApprovePricingAction::class));
+            $registry->register($app->make(\App\Services\Workflow\Actions\RequisitionAssignServiceProviderAction::class));
+
+            return $registry;
+        });
     }
 
     /**

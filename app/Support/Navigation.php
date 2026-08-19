@@ -84,11 +84,14 @@ final class Navigation
                 ],
             ],
             [
-                'type' => 'link',
-                'label' => 'Requisitions',
-                'route' => 'requisitions.index',
-                'permission' => 'purchase.requisitions.view',
+                'type' => 'group',
+                'label' => 'Purchases',
                 'icon' => 'file',
+                'module' => 'purchase',
+                'children' => [
+                    ['label' => 'Requisitions', 'route' => 'requisitions.index', 'permission' => 'purchase.requisitions.view'],
+                    ['label' => 'Service Providers', 'route' => 'service-providers.index', 'permission' => 'purchase.service_providers.view'],
+                ],
             ],
             [
                 'type' => 'group',

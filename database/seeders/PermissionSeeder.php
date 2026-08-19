@@ -69,6 +69,7 @@ class PermissionSeeder extends Seeder
 
             // Purchases
             ['purchase.requisitions', self::RECORD_APPROVE, 'Requisitions', 'Raise and manage purchase requisitions', false],
+            ['purchase.service_providers', self::CRUD, 'Service Providers / Vendors', 'Service provider directory and payment bank details', false],
             ['purchase.approve.depthead', ['approve'], 'Approve at stage 2 (Department Head)', 'One workflow stage, one permission', false],
             ['purchase.approve.audit', ['approve'], 'Approve at stage 3 (Internal Audit)', 'One workflow stage, one permission', false],
             ['purchase.approve.ed', ['approve'], 'Approve at stage 4 (Executive Director)', 'One workflow stage, one permission', false],
