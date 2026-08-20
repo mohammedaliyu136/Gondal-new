@@ -40,7 +40,7 @@ class Farmer extends Model implements Scopeable
          * somewhere else. Written only by the finance payout-details action,
          * which is gated on finance.farmer_payments.create.
          */
-        'payout_method', 'bank_name', 'bank_account_masked', 'mobile_money_number',
+        'payout_method', 'bank_name', 'bank_code', 'bank_account', 'account_name', 'bank_account_masked', 'mobile_money_number',
     ];
 
     protected function casts(): array

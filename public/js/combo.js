@@ -68,6 +68,7 @@
     var list = document.createElement('ul');
     list.className = 'combo-list';
     list.setAttribute('role', 'listbox');
+    list.style.zIndex = '100000';
     list.hidden = true;
 
     select.parentNode.insertBefore(wrap, select);
@@ -228,6 +229,10 @@
       } else if (event.key === 'Escape') { close(); }
     });
 
+    select.addEventListener('change', function () {
+      input.value = currentLabel();
+    });
+
     input.addEventListener('blur', function () {
       // Give a click on the list time to land.
       window.setTimeout(close, 120);
@@ -248,6 +253,8 @@
   function enhanceAll(root) {
     (root || document).querySelectorAll('select[data-searchable]').forEach(enhance);
   }
+
+  window.enhanceCombos = enhanceAll;
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', function () { enhanceAll(); });

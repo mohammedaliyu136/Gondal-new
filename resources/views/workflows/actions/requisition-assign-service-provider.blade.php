@@ -22,6 +22,7 @@
           </a>
         </div>
         <select id="sp-select-{{ $instance->id }}" name="service_provider_id" class="form-control"
+                data-searchable data-combo-placeholder="Search service providers…"
                 onchange="onServiceProviderSelected(this, '{{ $instance->id }}')"
                 style="width:100%; font-weight:600; font-size:0.9rem;">
           <option value="">-- Choose Registered Service Provider --</option>

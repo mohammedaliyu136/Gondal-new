@@ -441,6 +441,10 @@ Route::middleware(['auth', 'session.authenticate', 'account.usable', 'session.to
         ->middleware('permission:community.farmers.create')->name('farmers.store');
     Route::put('/farmers/{farmer}', [FarmerController::class, 'update'])
         ->middleware('permission:community.farmers.edit')->name('farmers.update');
+    Route::post('/farmers/verify-bank', [FarmerController::class, 'verifyBank'])
+        ->middleware('permission:community.farmers.create|community.farmers.edit|finance.farmer_payments.create')->name('farmers.verify-bank');
+    Route::get('/farmers-banks', [FarmerController::class, 'banks'])
+        ->middleware('permission:community.farmers.view')->name('farmers.banks');
 
     Route::middleware('permission:community.cooperatives.view')->group(function (): void {
         Route::get('/cooperatives', [CooperativeController::class, 'index'])->name('cooperatives.index');

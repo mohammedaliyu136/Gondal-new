@@ -1207,7 +1207,7 @@ tr.group-row td {
    scroll and resize.
  */
 .combo-list {
-  position: fixed; z-index: 200;
+  position: fixed; z-index: 100000;
   margin: 0; padding: 4px; list-style: none; max-height: 260px; overflow-y: auto;
   background: var(--surface, #fff); border: 1px solid var(--border, #d9e2e8);
   border-radius: 8px; box-shadow: 0 8px 24px rgba(11, 29, 40, 0.18);

@@ -108,6 +108,11 @@ class BankService
      * @param string $bankCode Bank 3-digit or 6-digit code
      * @return array{success: bool, account_name: string|null, account_number: string, bank_code: string, bank_name: string|null, gateway: string, message: string|null}
      */
+    public function verifyAccountNumber(string $accountNumber, string $bankCode): array
+    {
+        return $this->verifyAccount($accountNumber, $bankCode);
+    }
+
     public function verifyAccount(string $accountNumber, string $bankCode): array
     {
         $accountNumber = preg_replace('/\D/', '', $accountNumber) ?? '';
