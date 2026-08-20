@@ -151,6 +151,7 @@ final class Navigation
                 'label' => 'Accounting',
                 'icon' => 'ledger',
                 'children' => [
+                    ['label' => 'Requisition Payments', 'route' => 'requisition-payments.index', 'permission' => 'purchase.requisitions.spend', 'module' => 'finance'],
                     ['label' => 'Farmer Payments', 'route' => 'payment-runs.index', 'permission' => 'finance.farmer_payments.view', 'module' => 'finance'],
                     ['label' => 'Transport Payments', 'route' => 'transport-payments.index', 'permission' => 'logistics.payments.view', 'module' => 'milk'],
                     ['label' => 'Payroll', 'route' => 'payroll.index', 'permission' => 'hr.payroll.view', 'module' => 'hr'],

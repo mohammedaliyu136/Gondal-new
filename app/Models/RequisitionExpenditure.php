@@ -22,7 +22,7 @@ class RequisitionExpenditure extends Model
     use SoftDeletes;
 
     /** @var array<int, string> */
-    public const METHODS = ['bank', 'cash', 'cheque', 'transfer'];
+    public const METHODS = ['bank', 'cash', 'cheque', 'transfer', 'gateway'];
 
     public bool $tagsTestActivity = true;
 

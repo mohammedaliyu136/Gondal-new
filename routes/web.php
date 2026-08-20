@@ -19,6 +19,7 @@ use App\Http\Controllers\Community\FieldActivityController;
 use App\Http\Controllers\Community\ValidationController;
 use App\Http\Controllers\Finance\CashFloatController;
 use App\Http\Controllers\Finance\PaymentRunController;
+use App\Http\Controllers\Finance\RequisitionPaymentController;
 use App\Http\Controllers\Finance\TransportPaymentRunController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\Hr\DepartmentController;
@@ -306,6 +307,19 @@ Route::middleware(['auth', 'session.authenticate', 'account.usable', 'session.to
 
     Route::middleware('permission:purchase.service_providers.delete')->group(function (): void {
         Route::delete('/purchases/service-providers/{serviceProvider}', [ServiceProviderController::class, 'destroy'])->name('service-providers.destroy');
+    });
+
+    /* ---------------------- Requisition Payments --------------------- */
+
+    Route::middleware('permission:purchase.requisitions.spend')->group(function (): void {
+        Route::get('/finance/requisition-payments', [RequisitionPaymentController::class, 'index'])->name('requisition-payments.index');
+        Route::post('/finance/requisition-payments/disburse-batch', [RequisitionPaymentController::class, 'disburseBatch'])->name('requisition-payments.disburse-batch');
+        Route::get('/finance/requisition-payments/{requisition}', [RequisitionPaymentController::class, 'show'])->name('requisition-payments.show');
+        Route::post('/finance/requisition-payments/{requisition}/disburse', [RequisitionPaymentController::class, 'disburse'])->name('requisition-payments.disburse');
+        Route::get('/finance/requisition-payments/batches/{batch}', [RequisitionPaymentController::class, 'batch'])->name('requisition-payments.batch');
+        Route::post('/finance/requisition-payments/batches/{batch}/otp', [RequisitionPaymentController::class, 'validateBatchOtp'])->name('requisition-payments.validate-batch-otp');
+        Route::post('/finance/requisition-payments/batches/{batch}/resend-otp', [RequisitionPaymentController::class, 'resendBatchOtp'])->name('requisition-payments.resend-batch-otp');
+        Route::post('/finance/requisition-payments/batches/{batch}/sync', [RequisitionPaymentController::class, 'syncBatch'])->name('requisition-payments.sync-batch');
     });
 
     /* -------------------------- Community --------------------------- */

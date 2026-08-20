@@ -58,6 +58,7 @@ class RequisitionService
                 'needed_by' => $data['needed_by'] ?? null,
                 // NG-6 — free text until a vendor registry exists.
                 'suggested_vendor' => $data['suggested_vendor'] ?? null,
+                'service_provider_id' => $data['service_provider_id'] ?? null,
                 'total_minor' => 0,
                 'status' => Requisition::STATUS_DRAFT,
                 'revises_requisition_id' => $data['revises_requisition_id'] ?? null,
