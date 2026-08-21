@@ -55,6 +55,56 @@ class ApprovalsController extends Controller
         ]);
     }
 
+    public function show(Request $request, WorkflowInstance $instance): View
+    {
+        $user = $this->currentUser();
+
+        $instance->loadMissing([
+            'workflow.stages.approvingRole',
+            'workflow.bands',
+            'currentStage.approvingRole',
+            'requester',
+            'actions.actor',
+            'actions.onBehalfOf',
+            'actions.stage',
+            'band',
+            'subject',
+        ]);
+
+        $subject = $instance->subject;
+
+        if ($subject instanceof Requisition) {
+            $subject->loadMissing(['items', 'department', 'requester', 'serviceProvider', 'attachments', 'revises']);
+        } elseif ($subject instanceof LeaveRequest) {
+            $subject->loadMissing(['employee.department', 'leaveType', 'attachments']);
+        } elseif ($subject instanceof PayrollRun) {
+            $subject->loadMissing(['payslips.employee.department', 'runBy']);
+        } elseif ($subject instanceof PaymentRun) {
+            $subject->loadMissing(['payments.farmer', 'runBy']);
+        } elseif ($subject instanceof TransportPaymentRun) {
+            $subject->loadMissing(['payments.transporter', 'runBy']);
+        } elseif ($subject instanceof \App\Models\Batch) {
+            $subject->loadMissing(['collectionCenter', 'consignments.grade', 'discrepancyCause', 'rejectionReason']);
+        }
+
+        $canAct = $this->engine->canAct($instance, $user);
+        $stage = $instance->currentStage;
+        $stageActionHtml = null;
+
+        if ($canAct && $stage?->hasStageAction()) {
+            $stageActionHtml = $stage->stageActionHandler()?->renderForm($instance, $stage);
+        }
+
+        return view('approvals.show', [
+            'instance' => $instance,
+            'subject' => $subject,
+            'canAct' => $canAct,
+            'stage' => $stage,
+            'stageActionHtml' => $stageActionHtml,
+            'applicableStages' => $instance->applicableStages(),
+        ]);
+    }
+
     public function approve(Request $request, WorkflowInstance $instance): RedirectResponse
     {
         $validated = $request->validate([

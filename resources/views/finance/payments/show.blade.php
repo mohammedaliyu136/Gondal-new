@@ -9,7 +9,7 @@
   </div>
 
   <div class="detail-head">
-    <div>
+    <div class="dh-main">
       <h1>{{ $run->reference }}</h1>
       <div class="pill-row">
         <span class="badge {{ $run->status === 'paid' ? 'success' : ($run->status === 'cancelled' ? 'muted' : 'warning') }}">
@@ -18,7 +18,12 @@
         <span class="pill">{{ $run->period_start?->toDateString() }} &rarr; {{ $run->period_end?->toDateString() }}</span>
       </div>
     </div>
-    <div class="dh-actions">
+    <div class="dh-actions" style="margin-left: auto; display: flex; gap: 10px; align-items: center;">
+      @if ($canDisburse && $run->isApproved())
+        <a href="#modal-electronic-disburse" class="btn btn-primary font-bold" style="background:#0b7d54; border-color:#0b7d54; color:#fff;">
+          &#128179; Initiate Payout
+        </a>
+      @endif
       @if ($canCancel && $run->status === 'draft')
         <a href="#modal-submit" class="btn btn-primary">Send for approval</a>
         <a href="#modal-cancel" class="btn btn-outline">Cancel run</a>
@@ -68,6 +73,81 @@
     </div>
   </div>
 
+  {{-- Electronic Payment Batches Card --}}
+  @if (isset($batches) && $batches->isNotEmpty())
+    <div class="card mb-16">
+      <div class="card-head">
+        <div>
+          <h3>Electronic Payment Batches ({{ $batches->count() }})</h3>
+          <p>Disbursements processed via payment gateways</p>
+        </div>
+      </div>
+      <div class="card-body flush">
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Batch Ref</th>
+                <th>Gateway</th>
+                <th class="num">Amount</th>
+                <th>Items Settled</th>
+                <th>Status</th>
+                <th>Disbursed At</th>
+                <th class="actions">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              @foreach ($batches as $b)
+                <tr>
+                  <td>
+                    <a href="{{ route('payment-runs.batches.show', [$run, $b]) }}" class="perm-key font-bold">
+                      {{ $b->batch_reference }}
+                    </a>
+                  </td>
+                  <td>
+                    <span class="badge info plain">{{ ucfirst(str_replace('_', ' ', $b->gateway)) }}</span>
+                  </td>
+                  <td class="num font-bold" style="color:#0b7d54;">
+                    {{ \App\Support\Money::format($b->total_amount_minor) }}
+                  </td>
+                  <td>
+                    {{ $b->successful_items_count }} / {{ $b->total_items_count }}
+                    @if ($b->failed_items_count > 0)
+                      <span class="badge danger plain" style="margin-left:4px;">{{ $b->failed_items_count }} failed</span>
+                    @endif
+                  </td>
+                  <td>
+                    <span class="badge {{ ['completed' => 'success', 'processing' => 'warning', 'pending_otp' => 'warning', 'partially_completed' => 'warning', 'failed' => 'danger', 'cancelled' => 'muted'][$b->status] ?? 'muted' }}">
+                      {{ ucfirst(str_replace('_', ' ', $b->status)) }}
+                    </span>
+                  </td>
+                  <td>{{ $b->disbursed_at ? \App\Support\Wat::dateTime($b->disbursed_at) : '—' }}</td>
+                  <td class="actions">
+                    <a href="{{ route('payment-runs.batches.show', [$run, $b]) }}" class="btn btn-sm btn-outline">
+                      View Batch &rarr;
+                    </a>
+                    @if (in_array($b->gateway, ['monnify', 'paystack']) && $b->status !== 'cancelled')
+                      <form method="POST" action="{{ route('payment-runs.batches.sync', [$run, $b]) }}" style="display:inline">
+                        @csrf
+                        <button type="submit" class="btn btn-sm btn-ghost" title="Sync with Gateway">&#8635;</button>
+                      </form>
+                    @endif
+                    @if (in_array($b->status, ['initialized', 'processing', 'pending_otp', 'draft']))
+                      <form method="POST" action="{{ route('payment-runs.batches.cancel', [$run, $b]) }}" style="display:inline" onsubmit="return confirm('Cancel this batch to prevent duplicate disbursement?')">
+                        @csrf
+                        <button type="submit" class="btn btn-sm btn-ghost" title="Cancel this batch" style="color:#dc2626;">&#10005; Cancel</button>
+                      </form>
+                    @endif
+                  </td>
+                </tr>
+              @endforeach
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  @endif
+
   <div class="card">
     <div class="card-head"><div><h3>Farmers</h3><p>Every figure below can be opened and argued with</p></div></div>
     <div class="card-body flush">
@@ -94,9 +174,6 @@
                     {{ \Illuminate\Support\Str::headline($payment->status) }}</span>
                 </td>
                 <td class="actions">
-                  @if ($canDisburse && $run->isApproved() && ! $payment->isHeld() && $payment->outstandingMinor() > 0)
-                    <a href="#modal-pay-{{ $payment->id }}" class="btn btn-sm btn-primary">Pay</a>
-                  @endif
                   @if ($canReverse && $payment->status !== 'reversed')
                     <a href="#modal-reverse-{{ $payment->id }}" class="btn btn-sm btn-ghost">Reverse</a>
                   @endif
@@ -175,62 +252,7 @@
     </div>
   @endif
 
-  @if ($canDisburse && $run->isApproved())
-    @foreach ($payments as $payment)
-      @if (! $payment->isHeld() && $payment->outstandingMinor() > 0)
-        <div id="modal-pay-{{ $payment->id }}" class="modal">
-          <a href="#" class="modal-overlay"></a>
-          <div class="modal-dialog narrow">
-            <div class="modal-head"><div><h3>Pay {{ $payment->farmer?->name }}</h3>
-              <p>{{ \App\Support\Money::format($payment->outstandingMinor()) }} outstanding</p></div>
-              <a href="#" class="modal-close">&times;</a></div>
-            <form method="POST" action="{{ route('farmer-payments.disburse', $payment) }}">
-              @csrf
-              <div class="modal-body">
-                <div class="form-grid">
-                  <div class="field"><label>Amount (kobo)</label>
-                    <input type="number" name="amount_minor" value="{{ $payment->outstandingMinor() }}" required /></div>
-                  {{-- Defaulted to what the farmer's record says, so the payer
-                       is not choosing from memory at a collection point. --}}
-                  <div class="field"><label>Method</label>
-                    <select name="method" required>
-                      <option value="cash" @selected(($payment->farmer?->payout_method ?: 'cash') === 'cash')>Cash at the point</option>
-                      <option value="bank" @selected($payment->farmer?->payout_method === 'bank')>Bank transfer</option>
-                      <option value="mobile_money" @selected($payment->farmer?->payout_method === 'mobile_money')>Mobile money</option>
-                      <option value="via_cooperative" @selected($payment->farmer?->payout_method === 'via_cooperative')>Via the cooperative</option>
-                    </select>
-                    @if ($payment->farmer?->payout_method === 'bank' && $payment->farmer?->bank_account_masked)
-                      <div class="hint">{{ $payment->farmer->bank_name }} {{ $payment->farmer->bank_account_masked }}</div>
-                    @elseif ($payment->farmer?->payout_method === 'mobile_money' && $payment->farmer?->mobile_money_number)
-                      <div class="hint">{{ $payment->farmer->mobile_money_number }}</div>
-                    @endif
-                  </div>
-                  <div class="field"><label>Received by</label>
-                    <input type="text" name="received_by" value="{{ $payment->farmer?->name }}" /></div>
-                  <div class="field"><label>Relation</label>
-                    <select name="received_by_relation">
-                      <option value="self">The farmer</option>
-                      <option value="son">Son</option>
-                      <option value="wife">Wife</option>
-                      <option value="other">Someone else</option>
-                    </select></div>
-                  <div class="field full"><label>Authority reference <span class="hint">(if not the farmer)</span></label>
-                    <input type="text" name="proxy_authority_ref" />
-                    <div class="hint">Paying anyone but the farmer needs a written authority. It is logged.</div></div>
-                  <div class="field full"><label>Bank / mobile reference</label>
-                    <input type="text" name="external_reference" /></div>
-                </div>
-              </div>
-              <div class="modal-foot">
-                <a href="#" class="btn btn-ghost">Cancel</a>
-                <button type="submit" class="btn btn-primary">Record payout</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      @endif
-    @endforeach
-  @endif
+
 
   @if ($canReverse)
     {{-- Reversal is the only action here that can leave a farmer owing money, so
@@ -297,5 +319,121 @@
         </div>
       @endif
     @endforeach
+  @endif
+
+  {{-- Electronic Batch Disbursement Modal --}}
+  @if ($canDisburse && $run->isApproved())
+    <div id="modal-electronic-disburse" class="modal">
+      <a href="#" class="modal-overlay"></a>
+      <div class="modal-dialog" style="max-width:760px;">
+        <div class="modal-head">
+          <div>
+            <h3>Initiate Payout</h3>
+            <p>Disburse approved farmer milk payments via payment gateway &amp; debit farmer wallets</p>
+          </div>
+          <a href="#" class="modal-close">&times;</a>
+        </div>
+        <form method="POST" action="{{ route('payment-runs.disburse', $run) }}">
+          @csrf
+          <div class="modal-body">
+            <div class="grid grid-2 mb-16" style="gap:16px;">
+              <div class="field">
+                <label for="disburse_gateway">Payment Gateway / Channel <span class="req">*</span></label>
+                <select id="disburse_gateway" name="gateway" class="form-control font-bold" required>
+                  @if (isset($gateways) && !empty($gateways))
+                    @foreach ($gateways as $gwKey => $gwInfo)
+                      <option value="{{ $gwKey }}" {{ $gwKey === 'monnify' ? 'selected' : '' }}>
+                        {{ $gwInfo['name'] ?? ucfirst($gwKey) }} ({{ $gwInfo['driver'] ?? 'Direct Transfer' }})
+                      </option>
+                    @endforeach
+                  @else
+                    <option value="monnify" selected>Monnify (Direct Bank Transfer)</option>
+                    <option value="paystack">Paystack Transfer</option>
+                    <option value="bank_transfer">Direct Bank Settlement</option>
+                  @endif
+                </select>
+              </div>
+              <div class="field">
+                <label for="disburse_notes">Disbursement Notes / Narration</label>
+                <input type="text" id="disburse_notes" name="notes" class="form-control"
+                       placeholder="e.g. Milk settlement batch {{ $run->reference }}" value="Milk settlement batch {{ $run->reference }}" />
+              </div>
+            </div>
+
+            <h4 style="margin:16px 0 8px; font-size:0.95rem; color:#0f172a;">Select Farmers to Include in this Batch</h4>
+            <div class="table-wrap" style="max-height:280px; overflow-y:auto; border:1px solid #e2e8f0; border-radius:6px;">
+              <table class="table">
+                <thead>
+                  <tr style="background:#f8fafc; position:sticky; top:0; z-index:2;">
+                    <th style="width:30px;">
+                      <input type="checkbox" id="select_all_farmers" checked onchange="document.querySelectorAll('.farmer-checkbox').forEach(cb => cb.checked = this.checked)" />
+                    </th>
+                    <th>Farmer</th>
+                    <th>Bank &amp; Account</th>
+                    <th class="num">Outstanding (₦)</th>
+                    <th class="num" style="width:140px;">Payout Amount (₦)</th>
+                  </tr>
+                </thead>
+                  @php
+                    $payablePayments = $payments->filter(fn ($p) => !$p->isHeld() && $p->status !== 'paid' && $p->status !== 'reversed' && $p->outstandingMinor() > 0);
+                  @endphp
+                  @forelse ($payablePayments as $p)
+                    @php
+                      $cleanAcc = preg_replace('/\D/', '', (string) ($p->farmer?->bank_account ?? ($p->farmer?->bank_account_number ?? '')));
+                      $hasValidAcc = strlen($cleanAcc) === 10;
+                    @endphp
+                    <tr style="{{ !$hasValidAcc ? 'background:#fef2f2;' : '' }}">
+                      <td>
+                        <input type="checkbox" name="selected_payments[]" value="{{ $p->id }}" class="farmer-checkbox" {{ $hasValidAcc ? 'checked' : '' }} />
+                      </td>
+                      <td>
+                        <strong>{{ $p->farmer?->name }}</strong>
+                        <div class="cell-sub">{{ $p->farmer?->code }}</div>
+                      </td>
+                      <td>
+                        <div style="font-weight:600;">{{ $p->farmer?->bank_name ?: 'Bank not set' }}</div>
+                        @if ($hasValidAcc)
+                          <div class="cell-sub mono font-bold" style="color:#16a34a;">{{ $cleanAcc }} &check;</div>
+                        @else
+                          <div class="cell-sub font-bold text-danger" style="color:#dc2626; font-size:0.75rem;">
+                            &#9888; {{ $p->farmer?->bank_account_masked ?: 'No 10-digit account' }}
+                          </div>
+                        @endif
+                      </td>
+                      <td class="num font-bold" style="color:#0b7d54;">
+                        {{ \App\Support\Money::format($p->outstandingMinor()) }}
+                      </td>
+                      <td class="num">
+                        <input type="number" step="0.01" min="0.01" max="{{ $p->outstandingMinor() / 100 }}"
+                               name="amounts[{{ $p->id }}]"
+                               value="{{ number_format($p->outstandingMinor() / 100, 2, '.', '') }}"
+                               class="form-control font-bold num" style="padding:4px 8px; font-size:0.9rem;" />
+                      </td>
+                    </tr>
+                  @empty
+                    <tr>
+                      <td colspan="5" class="text-muted text-center">No payable farmer balances available on this run.</td>
+                    </tr>
+                  @endforelse
+                </tbody>
+              </table>
+            </div>
+
+            <div class="alert info mt-16" style="margin-bottom:0;">
+              <span>&#8505;</span>
+              <div style="font-size:0.85rem;">
+                <strong>Automatic Wallet Ledger:</strong> Upon successful settlement, the payout will be automatically deducted from each farmer's wallet, recorded as a <code>debit</code> transaction, and linked directly to this payment run.
+              </div>
+            </div>
+          </div>
+          <div class="modal-foot">
+            <a href="#" class="btn btn-ghost">Cancel</a>
+            <button type="submit" class="btn btn-primary font-bold" style="background:#0b7d54; border-color:#0b7d54;">
+              <span>&#128179;</span> Initiate Payout &rarr;
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   @endif
 @endsection

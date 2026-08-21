@@ -17,6 +17,7 @@ class PaymentBatchItem extends Model
     public const STATUS_SUCCESSFUL = 'successful';
     public const STATUS_FAILED = 'failed';
     public const STATUS_REVERSED = 'reversed';
+    public const STATUS_CANCELLED = 'cancelled';
 
     protected $fillable = [
         'payment_batch_id',

@@ -7,11 +7,14 @@ use App\Models\CollectionCenter;
 use App\Models\Cooperative;
 use App\Models\Farmer;
 use App\Models\FarmerPayment;
+use App\Models\PaymentBatch;
 use App\Models\PaymentRun;
 use App\Services\Finance\FarmerDisbursementService;
 use App\Services\Finance\FarmerPaymentReversalService;
 use App\Services\Finance\FarmerPaymentRunService;
 use App\Services\Finance\FarmerStatementService;
+use App\Services\Payment\Modules\FarmerPaymentService;
+use App\Services\Payment\PaymentService;
 use App\Services\Audit\AuditLogger;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -32,6 +35,8 @@ class PaymentRunController extends Controller
         private readonly FarmerDisbursementService $disbursements,
         private readonly FarmerPaymentReversalService $reversals,
         private readonly FarmerStatementService $statements,
+        private readonly FarmerPaymentService $farmerPaymentService,
+        private readonly PaymentService $paymentService,
         private readonly AuditLogger $audit,
     ) {}
 
@@ -57,12 +62,27 @@ class PaymentRunController extends Controller
         // the list would have hidden it.
         $this->authorizeAccess('finance.farmer_payments.view', $run, 'Payment run → '.$run->reference);
 
+        $batches = PaymentBatch::query()
+            ->where('source_type', $run->getMorphClass())
+            ->where('source_id', $run->getKey())
+            ->with(['items', 'initiatedBy', 'authorizedBy'])
+            ->latest('id')
+            ->get();
+
+        $gateways = $this->paymentService->getGatewayStatuses();
+        $canInitialize = $this->allows('payments.disbursements.initialize') || $this->allows('finance.farmer_payments.disburse');
+        $canAuthorize = $this->allows('payments.disbursements.authorize') || $this->allows('finance.farmer_payments.disburse');
+
         return view('finance.payments.show', [
             'run' => $run->load(['runBy', 'approvedBy', 'workflowInstance']),
             'payments' => $run->payments()->with(['farmer', 'disbursements'])->get()->sortBy('farmer.name'),
             'reconciliation' => $this->disbursements->reconcile($run),
+            'batches' => $batches,
+            'gateways' => $gateways,
             'canApprove' => $this->allows('finance.farmer_payments.approve', $run),
             'canDisburse' => $this->allows('finance.farmer_payments.disburse', $run),
+            'canInitialize' => $canInitialize,
+            'canAuthorize' => $canAuthorize,
             'canCancel' => $this->allows('finance.farmer_payments.create', $run) && $run->isEditable(),
             'canReverse' => $this->allows('finance.farmer_payments.reverse', $run) && $run->isApproved(),
         ]);
@@ -210,17 +230,24 @@ class PaymentRunController extends Controller
         $validated = $request->validate([
             'payout_method' => ['nullable', 'in:cash,bank,mobile_money,via_cooperative'],
             'bank_name' => ['nullable', 'string', 'max:255'],
+            'bank_code' => ['nullable', 'string', 'max:16'],
+            'bank_account' => ['nullable', 'string', 'max:32'],
             'bank_account_number' => ['nullable', 'string', 'max:32'],
+            'account_name' => ['nullable', 'string', 'max:255'],
             'mobile_money_number' => ['nullable', 'string', 'max:32'],
         ]);
 
-        $before = $farmer->only(['payout_method', 'bank_name', 'bank_account_masked', 'mobile_money_number']);
+        $before = $farmer->only(['payout_method', 'bank_name', 'bank_code', 'bank_account', 'account_name', 'bank_account_masked', 'mobile_money_number']);
 
-        $account = preg_replace('/\D/', '', (string) ($validated['bank_account_number'] ?? ''));
+        $rawAcc = $validated['bank_account'] ?? ($validated['bank_account_number'] ?? '');
+        $account = preg_replace('/\D/', '', (string) $rawAcc);
 
         $farmer->fill([
             'payout_method' => $validated['payout_method'] ?? null,
             'bank_name' => $validated['bank_name'] ?? null,
+            'bank_code' => $validated['bank_code'] ?? null,
+            'bank_account' => $account ?: null,
+            'account_name' => $validated['account_name'] ?? null,
             'mobile_money_number' => $validated['mobile_money_number'] ?? null,
         ]);
 
@@ -231,6 +258,9 @@ class PaymentRunController extends Controller
         }
 
         if (($validated['bank_name'] ?? null) === null) {
+            $farmer->bank_account = null;
+            $farmer->bank_code = null;
+            $farmer->account_name = null;
             $farmer->bank_account_masked = null;
         }
 
@@ -264,5 +294,174 @@ class PaymentRunController extends Controller
         $this->disbursements->record($payment, $validated, $this->currentUser());
 
         return back()->with('success', 'Payout recorded.');
+    }
+
+    /**
+     * Initiate electronic gateway batch disbursement for approved farmer payments.
+     */
+    public function disburseBatch(Request $request, PaymentRun $run): RedirectResponse
+    {
+        $this->authorizeAnyAccess(
+            ['finance.farmer_payments.disburse', 'payments.disbursements.initialize'],
+            $run,
+            'Disburse Farmer Payments Batch'
+        );
+
+        $validated = $request->validate([
+            'gateway' => ['required', 'string', 'in:monnify,paystack,mock,bank_transfer'],
+            'notes' => ['nullable', 'string', 'max:500'],
+            'selected_payments' => ['nullable', 'array'],
+            'selected_payments.*' => ['integer'],
+            'amounts' => ['nullable', 'array'],
+            'otp' => ['nullable', 'string', 'max:10'],
+        ]);
+
+        $selectedPayments = null;
+        if (!empty($validated['selected_payments'])) {
+            $selectedPayments = [];
+            foreach ($validated['selected_payments'] as $paymentId) {
+                $customAmount = isset($validated['amounts'][$paymentId])
+                    ? (int) round(((float) $validated['amounts'][$paymentId]) * 100)
+                    : null;
+
+                $selectedPayments[] = [
+                    'farmer_payment_id' => (int) $paymentId,
+                    'amount_minor' => $customAmount,
+                ];
+            }
+        }
+
+        try {
+            $batch = $this->farmerPaymentService->createBatch(
+                $run,
+                $validated['gateway'],
+                $this->currentUser(),
+                $validated['notes'] ?? null,
+                $selectedPayments
+            );
+
+            $batch = $this->farmerPaymentService->disburseBatch($batch, $validated['otp'] ?? null);
+
+            if ($batch->status === PaymentBatch::STATUS_PROCESSING) {
+                return redirect()->route('payment-runs.batches.show', [$run, $batch])
+                    ->with('info', 'Payment batch initialized. Enter OTP if required or check live status.');
+            }
+
+            return redirect()->route('payment-runs.show', $run)
+                ->with('success', 'Payment batch ' . $batch->batch_reference . ' disbursed successfully and farmer wallets updated.');
+        } catch (\Exception $e) {
+            return back()->with('error', $e->getMessage());
+        }
+    }
+
+    /**
+     * View detailed payment batch and line items.
+     */
+    public function batch(PaymentRun $run, PaymentBatch $batch): View
+    {
+        $this->authorizeAnyAccess(
+            ['finance.farmer_payments.view', 'payments.disbursements.view'],
+            $run,
+            'Farmer Payment Batch Details'
+        );
+
+        $batch->load(['items', 'initiatedBy', 'authorizedBy']);
+
+        $canAuthorize = $this->allows('payments.disbursements.authorize') || $this->allows('finance.farmer_payments.disburse');
+
+        return view('finance.payments.batch', [
+            'run' => $run,
+            'batch' => $batch,
+            'canAuthorize' => $canAuthorize,
+        ]);
+    }
+
+    /**
+     * Authorize batch payout with OTP.
+     */
+    public function validateBatchOtp(Request $request, PaymentRun $run, PaymentBatch $batch): RedirectResponse
+    {
+        $this->authorizeAnyAccess(
+            ['payments.disbursements.authorize', 'finance.farmer_payments.disburse'],
+            $run,
+            'Authorize Farmer Payment Batch'
+        );
+
+        $validated = $request->validate([
+            'otp' => ['required', 'string', 'max:10'],
+        ]);
+
+        try {
+            $this->farmerPaymentService->authorizeBatchOtp($batch, $validated['otp'], $this->currentUser());
+
+            return redirect()->route('payment-runs.batches.show', [$run, $batch])
+                ->with('success', 'Batch OTP validated and payout successfully completed. Farmer wallets debited.');
+        } catch (\Exception $e) {
+            return back()->with('error', $e->getMessage());
+        }
+    }
+
+    /**
+     * Resend OTP for payment batch.
+     */
+    public function resendBatchOtp(PaymentRun $run, PaymentBatch $batch): RedirectResponse
+    {
+        $this->authorizeAnyAccess(
+            ['payments.disbursements.authorize', 'finance.farmer_payments.disburse'],
+            $run,
+            'Resend Batch OTP'
+        );
+
+        try {
+            $this->farmerPaymentService->resendBatchOtp($batch, $this->currentUser());
+
+            return back()->with('success', 'Authorization OTP resent to the registered device.');
+        } catch (\Exception $e) {
+            return back()->with('error', $e->getMessage());
+        }
+    }
+
+    /**
+     * Query and sync live batch status from gateway.
+     */
+    public function syncBatchStatus(PaymentRun $run, PaymentBatch $batch): RedirectResponse
+    {
+        $this->authorizeAnyAccess(
+            ['finance.farmer_payments.view', 'payments.disbursements.initialize'],
+            $run,
+            'Sync Batch Status'
+        );
+
+        try {
+            $this->farmerPaymentService->syncBatchStatus($batch, $this->currentUser());
+
+            return back()->with('success', 'Batch status updated from gateway.');
+        } catch (\Exception $e) {
+            return back()->with('error', $e->getMessage());
+        }
+    }
+
+    /**
+     * Cancel an active or pending payment batch to prevent duplicate disbursement.
+     */
+    public function cancelBatch(PaymentRun $run, PaymentBatch $batch): RedirectResponse
+    {
+        $this->authorizeAnyAccess(
+            ['finance.farmer_payments.disburse', 'payments.disbursements.initialize'],
+            $run,
+            'Cancel Payment Batch'
+        );
+
+        if ($batch->source_id !== $run->id || $batch->source_type !== $run->getMorphClass()) {
+            abort(404);
+        }
+
+        try {
+            $this->farmerPaymentService->cancelBatch($batch, $this->currentUser(), request('reason'));
+
+            return back()->with('success', "Payment batch {$batch->batch_reference} has been cancelled.");
+        } catch (\Exception $e) {
+            return back()->with('error', $e->getMessage());
+        }
     }
 }

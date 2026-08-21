@@ -127,6 +127,7 @@ Route::middleware(['auth', 'session.authenticate', 'account.usable', 'session.to
      */
     Route::middleware('approval-queue')->group(function (): void {
         Route::get('/approvals', [ApprovalsController::class, 'index'])->name('approvals.index');
+        Route::get('/approvals/{instance}', [ApprovalsController::class, 'show'])->name('approvals.show');
         Route::post('/approvals/{instance}/approve', [ApprovalsController::class, 'approve'])->name('approvals.approve');
         Route::post('/approvals/{instance}/reject', [ApprovalsController::class, 'reject'])->name('approvals.reject');
         Route::post('/approvals/{instance}/request-info', [ApprovalsController::class, 'requestInfo'])->name('approvals.request-info');
@@ -340,22 +341,38 @@ Route::middleware(['auth', 'session.authenticate', 'account.usable', 'session.to
      * Officer at the centre, deliberately NOT by the agent who recorded the
      * milk.
      */
-    Route::get('/payment-runs', [PaymentRunController::class, 'index'])
+    Route::get('/farmer-payments', [PaymentRunController::class, 'index'])
         ->middleware('permission:finance.farmer_payments.view')->name('payment-runs.index');
-    Route::get('/payment-runs/{run}', [PaymentRunController::class, 'show'])
+    Route::get('/farmer-payments/runs/{run}', [PaymentRunController::class, 'show'])
         ->middleware('permission:finance.farmer_payments.view')->name('payment-runs.show');
-    Route::post('/payment-runs', [PaymentRunController::class, 'store'])
+    Route::post('/farmer-payments', [PaymentRunController::class, 'store'])
         ->middleware('permission:finance.farmer_payments.create')->name('payment-runs.store');
-    Route::post('/payment-runs/{run}/submit', [PaymentRunController::class, 'submit'])
+    Route::post('/farmer-payments/runs/{run}/submit', [PaymentRunController::class, 'submit'])
         ->middleware('permission:finance.farmer_payments.create')->name('payment-runs.submit');
-    Route::post('/payment-runs/{run}/cancel', [PaymentRunController::class, 'cancel'])
+    Route::post('/farmer-payments/runs/{run}/cancel', [PaymentRunController::class, 'cancel'])
         ->middleware('permission:finance.farmer_payments.create')->name('payment-runs.cancel');
+    Route::post('/farmer-payments/runs/{run}/disburse', [PaymentRunController::class, 'disburseBatch'])
+        ->middleware('permission:finance.farmer_payments.disburse|payments.disbursements.initialize')->name('payment-runs.disburse');
+    Route::get('/farmer-payments/runs/{run}/batches/{batch}', [PaymentRunController::class, 'batch'])
+        ->middleware('permission:finance.farmer_payments.view|payments.disbursements.view')->name('payment-runs.batches.show');
+    Route::post('/farmer-payments/runs/{run}/batches/{batch}/otp', [PaymentRunController::class, 'validateBatchOtp'])
+        ->middleware('permission:finance.farmer_payments.disburse|payments.disbursements.authorize')->name('payment-runs.batches.otp');
+    Route::post('/farmer-payments/runs/{run}/batches/{batch}/resend-otp', [PaymentRunController::class, 'resendBatchOtp'])
+        ->middleware('permission:finance.farmer_payments.disburse|payments.disbursements.authorize')->name('payment-runs.batches.resend-otp');
+    Route::post('/farmer-payments/runs/{run}/batches/{batch}/sync', [PaymentRunController::class, 'syncBatchStatus'])
+        ->middleware('permission:finance.farmer_payments.view|payments.disbursements.initialize')->name('payment-runs.batches.sync');
+    Route::post('/farmer-payments/runs/{run}/batches/{batch}/cancel', [PaymentRunController::class, 'cancelBatch'])
+        ->middleware('permission:finance.farmer_payments.disburse|payments.disbursements.initialize')->name('payment-runs.batches.cancel');
     Route::post('/farmer-payments/{payment}/disburse', [PaymentRunController::class, 'disburse'])
         ->middleware('permission:finance.farmer_payments.disburse')->name('farmer-payments.disburse');
-    Route::post('/payment-runs/{run}/reverse', [PaymentRunController::class, 'reverseRun'])
+    Route::post('/farmer-payments/runs/{run}/reverse', [PaymentRunController::class, 'reverseRun'])
         ->middleware('permission:finance.farmer_payments.reverse')->name('payment-runs.reverse');
     Route::post('/farmer-payments/{payment}/reverse', [PaymentRunController::class, 'reversePayment'])
         ->middleware('permission:finance.farmer_payments.reverse')->name('farmer-payments.reverse');
+
+    // Legacy redirect for /payment-runs
+    Route::get('/payment-runs', fn () => redirect()->route('payment-runs.index'));
+    Route::get('/payment-runs/{run}', fn ($run) => redirect()->route('payment-runs.show', $run));
     // USER-2 — printed FOR a farmer, never logged into by one. The second
     // authorisation layer (this farmer, this caller's scope) is in the controller.
     Route::get('/farmers/{farmer}/statement', [PaymentRunController::class, 'statement'])

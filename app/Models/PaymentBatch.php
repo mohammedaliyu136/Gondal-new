@@ -16,9 +16,11 @@ class PaymentBatch extends Model
     public const STATUS_DRAFT = 'draft';
     public const STATUS_INITIALIZED = 'initialized';
     public const STATUS_PROCESSING = 'processing';
+    public const STATUS_PENDING_OTP = 'pending_otp';
     public const STATUS_COMPLETED = 'completed';
     public const STATUS_PARTIALLY_COMPLETED = 'partially_completed';
     public const STATUS_FAILED = 'failed';
+    public const STATUS_CANCELLED = 'cancelled';
 
     protected $fillable = [
         'batch_reference',

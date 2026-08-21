@@ -59,19 +59,34 @@
             @forelse ($queue as $instance)
               <tr>
                 <td>
-                  @if ($instance->subject instanceof \App\Contracts\WorkflowSubjectInterface)
-                    @if ($instance->subject->getApprovalUrl())
-                      <a href="{{ $instance->subject->getApprovalUrl() }}" class="perm-key">{{ $instance->subject->getApprovalReference() }}</a>
+                  <a href="{{ route('approvals.show', $instance) }}" class="perm-key font-bold">
+                    @if ($instance->subject instanceof \App\Contracts\WorkflowSubjectInterface)
+                      {{ $instance->subject->getApprovalReference() }}
+                    @elseif ($instance->subject?->reference)
+                      {{ $instance->subject->reference }}
+                    @elseif ($instance->subject instanceof \App\Models\LeaveRequest)
+                      Leave Request #{{ $instance->subject->id }}
+                    @elseif ($instance->subject instanceof \App\Models\PayrollRun)
+                      Payroll #{{ $instance->subject->id }}
                     @else
-                      <span class="perm-key">{{ $instance->subject->getApprovalReference() }}</span>
+                      {{ class_basename($instance->subject_type) }} #{{ $instance->subject_id }}
                     @endif
-                    <div class="cell-sub">{{ $instance->subject->getApprovalTitle() }}</div>
-                  @elseif ($instance->subject instanceof \App\Models\Requisition)
-                    <a href="{{ route('requisitions.show', $instance->subject) }}" class="perm-key">{{ $instance->subject->reference }}</a>
-                    <div class="cell-sub">{{ $instance->subject->title }}</div>
-                  @else
-                    <span class="perm-key">{{ $instance->subject?->reference ?? class_basename($instance->subject_type) }}</span>
-                  @endif
+                  </a>
+                  <div class="cell-sub">
+                    @if ($instance->subject instanceof \App\Models\Requisition)
+                      {{ $instance->subject->title }}
+                    @elseif ($instance->subject instanceof \App\Models\LeaveRequest)
+                      {{ $instance->subject->employee?->name }} ({{ $instance->subject->leaveType?->name }})
+                    @elseif ($instance->subject instanceof \App\Models\PayrollRun)
+                      Payroll {{ $instance->subject->periodLabel() }}
+                    @elseif ($instance->subject instanceof \App\Models\PaymentRun)
+                      Farmer Payments ({{ $instance->subject->farmer_count }} farmers)
+                    @elseif ($instance->subject instanceof \App\Contracts\WorkflowSubjectInterface)
+                      {{ $instance->subject->getApprovalTitle() }}
+                    @else
+                      {{ class_basename($instance->subject_type) }}
+                    @endif
+                  </div>
                 </td>
                 <td>{{ $instance->workflow->name }}
                   <div class="cell-sub">{{ $instance->band?->name }} band</div></td>
@@ -91,7 +106,9 @@
                   @endif
                 </td>
                 <td class="actions">
-                  <a href="#modal-act-{{ $instance->id }}" class="btn btn-primary btn-sm">Act</a>
+                  <a href="{{ route('approvals.show', $instance) }}" class="btn btn-primary btn-sm">
+                    Review &amp; Act &rarr;
+                  </a>
                 </td>
               </tr>
             @empty

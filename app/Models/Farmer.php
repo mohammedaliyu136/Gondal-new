@@ -125,6 +125,30 @@ class Farmer extends Model implements Scopeable
         return $this->hasMany(FarmerValidation::class)->latest('assigned_at');
     }
 
+    public function wallet(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(FarmerWallet::class);
+    }
+
+    public function walletTransactions(): HasMany
+    {
+        return $this->hasMany(FarmerWalletTransaction::class)->latest('id');
+    }
+
+    public function getOrCreateWallet(): FarmerWallet
+    {
+        return $this->wallet()->firstOrCreate(
+            ['farmer_id' => $this->getKey()],
+            [
+                'balance_minor' => 0,
+                'total_credited_minor' => 0,
+                'total_debited_minor' => 0,
+                'status' => FarmerWallet::STATUS_ACTIVE,
+                'currency' => 'NGN',
+            ]
+        );
+    }
+
     public function scopeActive(Builder $query): Builder
     {
         return $query->where('status', 'active');

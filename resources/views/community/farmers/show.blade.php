@@ -108,6 +108,85 @@
         </div>
       @endif
 
+      @if ($seesVolumes || $seesFinances)
+        {{-- Wallet Activity & Reconciled Earnings Ledger --}}
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <h3 style="color:#0b7d54; margin:0;">&#128220; Wallet Activity &amp; Milk Earnings Ledger</h3>
+              <p style="margin:0;">Chronological record of automated milk reconciliation credits &amp; debits</p>
+            </div>
+            <span class="pill green font-bold">Balance: {{ $wallet->formattedBalance() }}</span>
+          </div>
+          <div class="card-body flush">
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Ref</th>
+                    <th>Type</th>
+                    <th>Activity / Milk Details</th>
+                    <th class="num">Litres / Rate</th>
+                    <th class="num">Amount</th>
+                    <th class="num">Balance After</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @forelse ($walletTransactions as $txn)
+                    <tr>
+                      <td style="white-space:nowrap; font-size:0.85rem;">
+                        {{ \App\Support\Wat::dateTime($txn->created_at) }}
+                      </td>
+                      <td class="mono" style="font-size:0.8rem; font-weight:600;">
+                        {{ $txn->reference }}
+                      </td>
+                      <td>
+                        <span class="badge {{ $txn->type === 'credit' ? 'success' : ($txn->type === 'debit' ? 'warning' : 'info') }}">
+                          {{ ucfirst($txn->type) }}
+                        </span>
+                      </td>
+                      <td style="font-size:0.85rem;">
+                        <div style="font-weight:600; color:#0f172a;">{{ $txn->description }}</div>
+                        @if ($txn->source_type)
+                          <div class="cell-sub perm-key">{{ class_basename($txn->source_type) }} #{{ $txn->source_id }}</div>
+                        @endif
+                      </td>
+                      <td class="num" style="font-size:0.85rem;">
+                        @if ($txn->litres)
+                          <div><strong>{{ $txn->formattedLitres() }}</strong></div>
+                          @if ($txn->rate_per_litre_minor)
+                            <div class="cell-sub">@ {{ $txn->formattedRate() }}/L</div>
+                          @endif
+                        @else
+                          <span class="text-muted">—</span>
+                        @endif
+                      </td>
+                      <td class="num font-bold" style="font-size:0.95rem; color: {{ $txn->type === 'credit' ? '#0b7d54' : '#dc2626' }};">
+                        {{ $txn->type === 'credit' ? '+' : '-' }}{{ $txn->formattedAmount() }}
+                      </td>
+                      <td class="num font-bold mono" style="font-size:0.9rem; color:#0f172a;">
+                        {{ $txn->formattedBalanceAfter() }}
+                      </td>
+                    </tr>
+                  @empty
+                    <tr>
+                      <td colspan="7">
+                        @include('partials.empty', [
+                          'title' => 'No wallet activity recorded yet',
+                          'message' => 'Wallet transactions will automatically appear here once arriving milk batches are reconciled at factory intake.',
+                          'icon' => '&#128181;'
+                        ])
+                      </td>
+                    </tr>
+                  @endforelse
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      @endif
+
       <div class="card">
         <div class="card-head"><div><h3>Extension Activity</h3><p>Visits, training and follow-ups</p></div></div>
         <div class="card-body">
@@ -133,6 +212,40 @@
     </div>
 
     <div class="stack">
+      {{-- Farmer Wallet & Balance Card --}}
+      <div class="card" style="border: 1px solid #c6ebdb; box-shadow: 0 4px 6px -1px rgba(11, 125, 84, 0.1);">
+        <div class="card-head" style="background: linear-gradient(135deg, #0b7d54 0%, #045a3b 100%); color:#fff; border-radius: 12px 12px 0 0;">
+          <div>
+            <h3 style="color:#fff; margin:0; font-size:1.05rem;">&#128181; Farmer Wallet Balance</h3>
+            <p style="color:#d1fae5; margin:0; font-size:0.8rem;">Automated credit balance from milk intake</p>
+          </div>
+          <span class="badge success" style="background:#059669; color:#fff; border:1px solid #34d399;">
+            {{ ucfirst($wallet->status ?? 'active') }}
+          </span>
+        </div>
+        <div class="card-body" style="padding: 16px;">
+          <div style="text-align:center; padding: 12px 0 16px; border-bottom: 1px solid #e2e8f0;">
+            <div style="font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; font-weight: 600;">Available Wallet Balance</div>
+            <div style="font-size: 2.1rem; font-weight: 800; color: #0b7d54; margin: 4px 0;">
+              {{ $wallet->formattedBalance() }}
+            </div>
+            <div style="font-size: 0.75rem; color: #059669;">
+              &#10003; Live reconciled balance
+            </div>
+          </div>
+          <div class="meta-grid cols-2" style="gap:10px; margin-top: 14px;">
+            <div class="meta-item" style="background:#f8fafc; padding:8px 10px; border-radius:8px;">
+              <div class="meta-label" style="font-size:0.75rem;">Lifetime Credited</div>
+              <div class="meta-value font-bold" style="color:#0f172a; font-size:0.95rem;">{{ $wallet->formattedTotalCredited() }}</div>
+            </div>
+            <div class="meta-item" style="background:#f8fafc; padding:8px 10px; border-radius:8px;">
+              <div class="meta-label" style="font-size:0.75rem;">Total Disbursed</div>
+              <div class="meta-value font-bold" style="color:#64748b; font-size:0.95rem;">{{ $wallet->formattedTotalDebited() }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {{-- Bank & Payout Destination Card --}}
       <div class="card">
         <div class="card-head" style="background:#eff6ff;">

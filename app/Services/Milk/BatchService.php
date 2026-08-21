@@ -34,6 +34,7 @@ class BatchService
     public function __construct(
         private readonly AuditLogger $audit,
         private readonly NotificationService $notifications,
+        private readonly \App\Services\Finance\FarmerWalletService $walletService,
     ) {}
 
     /**
@@ -282,6 +283,9 @@ class BatchService
         }
 
         $batch->saveWithLock();
+
+        // Credit farmer wallets for their deliveries in this reconciled batch
+        $walletStats = $this->walletService->creditForReconciledBatch($batch, $actor);
 
         $this->audit->edited(
             $batch,

@@ -26,6 +26,9 @@
       --}}
       @can('admin.settings.edit')<a href="{{ route('admin.settings') }}" class="text-primary">Settings</a>@else<span>Settings</span>@endcan.
       Beyond it, a supervisor note is required before a batch can be released.
+      <div style="margin-top:4px; color:#0369a1; font-weight:500;">
+        &#128181; <em>Reconciling arriving batches automatically calculates and credits participating farmers' digital wallets for their confirmed milk volume.</em>
+      </div>
     </div>
   </div>
 

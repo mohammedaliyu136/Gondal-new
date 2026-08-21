@@ -103,6 +103,9 @@ class FarmerController extends Controller
             'pendingDeductions' => $this->allows('shop.sales.view')
                 ? $farmer->pendingDeductions()->pending()->with('sale')->get()
                 : collect(),
+            'wallet' => $farmer->getOrCreateWallet(),
+            'walletTransactions' => $farmer->walletTransactions()->with(['recordedBy'])->limit(20)->get(),
+            'seesFinances' => $this->allows('finance.farmer_payments.view') || $this->allows('community.farmers.view'),
         ]);
     }
 
