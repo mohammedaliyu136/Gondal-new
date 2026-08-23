@@ -29,12 +29,12 @@ class RequisitionAdjustItemsAction implements WorkflowStageActionHandler
 
     public function label(): string
     {
-        return 'Adjust Line Items & Quantities (HOD)';
+        return 'Adjust Line Items & Quantities HOD;
     }
 
     public function description(): string
     {
-        return 'Allows HOD / approvers to accept or reject individual items, adjust requested quantities, and modify estimated unit prices.';
+        return 'Allows approvers to adjust item counts/quantities, modify unit prices, add new items, or remove line items at this stage.';
     }
 
     public function appliesTo(): array
@@ -71,28 +71,13 @@ class RequisitionAdjustItemsAction implements WorkflowStageActionHandler
             ]);
         }
 
-        $validatedAcceptedItems = [];
-        $rejectedItems = [];
-
+        $validatedItems = [];
         foreach ($items as $idx => $itemData) {
             $name = trim($itemData['item'] ?? '');
-            $status = trim($itemData['status'] ?? 'accept');
             $qty = (float) ($itemData['quantity'] ?? 0);
             $unitPriceMajor = (float) ($itemData['unit_price'] ?? 0);
             $unit = trim($itemData['unit'] ?? '');
             $purpose = trim($itemData['purpose'] ?? '');
-
-            if ($status === 'reject') {
-                $rejectedItems[] = [
-                    'item' => $name,
-                    'purpose' => $purpose ?: null,
-                    'quantity' => $qty,
-                    'unit' => $unit ?: null,
-                    'unit_price_minor' => Money::fromMajor($unitPriceMajor) ?? 0,
-                    'status' => 'rejected',
-                ];
-                continue;
-            }
 
             if ($name === '') {
                 throw ValidationException::withMessages([
@@ -114,26 +99,16 @@ class RequisitionAdjustItemsAction implements WorkflowStageActionHandler
 
             $unitPriceMinor = Money::fromMajor($unitPriceMajor) ?? 0;
 
-            $validatedAcceptedItems[] = [
+            $validatedItems[] = [
                 'item' => $name,
                 'purpose' => $purpose ?: null,
                 'quantity' => $qty,
                 'unit' => $unit ?: null,
                 'unit_price_minor' => $unitPriceMinor,
-                'status' => 'accepted',
             ];
         }
 
-        if (count($validatedAcceptedItems) === 0) {
-            throw ValidationException::withMessages([
-                'stage_action_items' => 'At least one line item must be accepted. To reject the entire requisition, please use the Reject button.',
-            ]);
-        }
-
-        return [
-            'items' => $validatedAcceptedItems,
-            'rejected_items' => $rejectedItems,
-        ];
+        return ['items' => $validatedItems];
     }
 
     public function execute(WorkflowInstance $instance, WorkflowStage $stage, User $actor, array $payload): void
@@ -148,12 +123,10 @@ class RequisitionAdjustItemsAction implements WorkflowStageActionHandler
             return;
         }
 
-        $rejectedItems = $payload['rejected_items'] ?? [];
-
-        DB::transaction(function () use ($requisition, $instance, $stage, $actor, $items, $rejectedItems): void {
+        DB::transaction(function () use ($requisition, $instance, $stage, $actor, $items): void {
             $oldTotal = (int) $requisition->total_minor;
 
-            // Replace line items with accepted items
+            // Replace line items
             $this->requisitionService->replaceItems($requisition, $items);
             $requisition->refresh();
 
@@ -164,30 +137,23 @@ class RequisitionAdjustItemsAction implements WorkflowStageActionHandler
             $instance->approved_amount_minor = $newTotal;
             $instance->save();
 
-            // Format summary notes for audit log
-            $auditSummary = sprintf(
-                'Line items reviewed at stage "%s" by %s (%s → %s). Accepted: %d item(s)%s.',
-                $stage->name,
-                $actor->name,
-                Money::format($oldTotal),
-                Money::format($newTotal),
-                count($items),
-                count($rejectedItems) > 0 ? sprintf(', Rejected: %d item(s)', count($rejectedItems)) : '',
-            );
-
             // Log an audit trail
             $this->audit->approval(
                 $requisition,
-                $auditSummary,
+                sprintf(
+                    'Line items adjusted at stage "%s" by %s (%s → %s)',
+                    $stage->name,
+                    $actor->name,
+                    Money::format($oldTotal),
+                    Money::format($newTotal),
+                ),
                 [
                     'stage' => $stage->name,
                     'stage_id' => $stage->id,
                     'old_total_minor' => $oldTotal,
                     'new_total_minor' => $newTotal,
-                    'accepted_items_count' => count($items),
-                    'accepted_items' => $items,
-                    'rejected_items_count' => count($rejectedItems),
-                    'rejected_items' => $rejectedItems,
+                    'items_count' => count($items),
+                    'items' => $items,
                 ],
                 $actor,
             );

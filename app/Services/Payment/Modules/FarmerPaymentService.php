@@ -303,42 +303,41 @@ class FarmerPaymentService implements ModulePaymentServiceInterface
     }
 
     /**
-     * Authorize a pending batch with OTP.
+     * Authorize a pending batch payout with OTP and re-synchronize live settlement status with gateway.
      */
     public function authorizeBatchOtp(PaymentBatch $batch, string $otp, User $actor): PaymentBatch
     {
-        $result = $this->paymentService->validateBatchOtp(
-            $batch->batch_reference,
-            $otp,
-            $batch->gateway,
-            $batch->gateway_batch_reference
-        );
+        $batch->load(['items', 'source']);
 
-        if (!$result->success) {
-            throw new Exception($result->message ?? 'Invalid OTP code or authorization failed.');
+        try {
+            $result = $this->paymentService->validateBatchOtp(
+                $batch->batch_reference,
+                $otp,
+                $batch->gateway,
+                $batch->gateway_batch_reference
+            );
+
+            if (!$result->success) {
+                throw new Exception($result->message ?? 'Invalid OTP code or authorization failed.');
+            }
+        } catch (\Throwable $e) {
+            $errorMessage = $e->getMessage();
+            $lower = strtolower($errorMessage);
+
+            $isOtpDisabled = str_contains($lower, 'otp has been disabled') || str_contains($lower, 'otp disabled');
+            $isAlreadyProcessed = str_contains($lower, 'already processed') || str_contains($lower, 'already finalized');
+
+            if (!$isOtpDisabled && !$isAlreadyProcessed) {
+                throw new Exception(ucfirst($batch->gateway) . ' OTP Error: ' . $errorMessage);
+            }
         }
 
-        DB::transaction(function () use ($batch, $result, $actor): void {
-            $now = Wat::now();
+        $batch->forceFill([
+            'authorized_by_user_id' => $actor->getKey(),
+        ])->save();
 
-            foreach ($batch->items as $item) {
-                $item->forceFill([
-                    'status' => PaymentBatchItem::STATUS_SUCCESSFUL,
-                    'paid_at' => $now,
-                ])->save();
-            }
-
-            $batch->forceFill([
-                'status' => PaymentBatch::STATUS_COMPLETED,
-                'successful_items_count' => $batch->items->count(),
-                'authorized_by_user_id' => $actor->getKey(),
-                'completed_at' => $now,
-            ])->save();
-
-            $this->processSuccessfulDisbursements($batch, $actor);
-        });
-
-        return $batch->refresh();
+        // Query live settlement status with gateway and process only confirmed successful items
+        return $this->syncBatchStatus($batch, $actor);
     }
 
     /**
