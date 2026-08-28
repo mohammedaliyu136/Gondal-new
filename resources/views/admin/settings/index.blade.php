@@ -159,6 +159,17 @@
                 <div class="hint">
                   Beyond this, the supervisor must record an explanation before the batch can be released.
                 </div></div>
+              <div class="field full">
+                <div class="divider" style="margin: 8px 0 16px 0;"></div>
+                <label class="check-label" for="st-direct-credit" style="font-weight:600;font-size:14px;">
+                  <input type="checkbox" id="st-direct-credit" name="milk_direct_wallet_credit_enabled" value="1"
+                         @checked($settings['direct_wallet_credit_enabled']) />
+                  Direct Farmer Wallet Crediting (Bypass Consignment Dispatch &amp; Batch Reconciliation)
+                </label>
+                <div class="hint" style="margin-top:6px;line-height:1.5;">
+                  When enabled, recording milk intake at collection points immediately credits the farmer&rsquo;s electronic wallet based on current milk rate, allowing payout runs (<code>/farmer-payments</code>) to proceed directly without requiring consignment dispatch or batch reconciliation.
+                </div>
+              </div>
             </div>
 
             <div class="divider"></div>

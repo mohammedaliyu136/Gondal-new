@@ -973,7 +973,7 @@ class FarmerPaymentRulesTest extends GondalTestCase
         $accounting = $nav->firstWhere('label', 'Accounting');
         $this->assertNotNull($accounting, 'Accounts holds both permissions');
         $this->assertSame(
-            ['Farmer Payments', 'Transport Payments', 'Payroll', 'Cash Book'],
+            ['Requisition Payments', 'Farmer Payments', 'Transport Payments', 'Payroll', 'Cash Book'],
             collect($accounting['children'])->pluck('label')->all(),
         );
 

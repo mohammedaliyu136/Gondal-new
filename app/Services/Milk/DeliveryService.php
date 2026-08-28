@@ -7,9 +7,13 @@ use App\Exceptions\RuleViolationException;
 use App\Models\CollectionPoint;
 use App\Models\Delivery;
 use App\Models\Farmer;
+use App\Models\FarmerWalletTransaction;
+use App\Models\Grade;
 use App\Models\RejectionReason;
 use App\Models\User;
 use App\Services\Audit\AuditLogger;
+use App\Services\Finance\FarmerWalletService;
+use App\Support\Money;
 use App\Support\Sequences;
 use App\Support\Settings;
 use App\Support\Volume;
@@ -39,6 +43,7 @@ class DeliveryService
         private readonly AuditLogger $audit,
         private readonly QualityFollowupService $followups,
         private readonly Access $access,
+        private readonly FarmerWalletService $wallets,
     ) {}
 
     /**
@@ -134,6 +139,42 @@ class DeliveryService
             ],
             $actor,
         );
+
+        // Auto-credit farmer wallet if direct crediting setting is enabled
+        if (Settings::boolean('milk.direct_wallet_credit_enabled', false) && Volume::toCentilitres((string) $delivery->litres_payable) > 0) {
+            $defaultGrade = Grade::query()->where('code', 'GRD-A')->first() ?? Grade::query()->assignable()->orderBy('position')->first();
+            $rateMinor = (int) ($defaultGrade?->rateOn($deliveredAtLocal)?->rate_per_litre_minor ?? 0);
+
+            if ($rateMinor > 0) {
+                $lineGrossMinor = Money::valueVolume((string) $delivery->litres_payable, $rateMinor);
+
+                if ($lineGrossMinor > 0) {
+                    $formattedRate = Money::format($rateMinor);
+                    $formattedLitres = Volume::format((string) $delivery->litres_payable);
+                    $desc = "Direct intake delivery credit — {$delivery->reference} ({$formattedLitres} @ {$formattedRate}/L)";
+
+                    $this->wallets->credit(
+                        farmer: $farmer,
+                        amountMinor: $lineGrossMinor,
+                        type: FarmerWalletTransaction::TYPE_CREDIT,
+                        source: $delivery,
+                        description: $desc,
+                        actor: $actor,
+                        litres: (string) $delivery->litres_payable,
+                        rateMinor: $rateMinor,
+                        meta: [
+                            'delivery_id' => $delivery->id,
+                            'delivery_reference' => $delivery->reference,
+                            'collection_point_id' => $point->id,
+                            'collection_point_name' => $point->name,
+                            'grade' => $defaultGrade?->name,
+                            'bypass_consignment_flow' => true,
+                            'recorded_at' => Wat::now()->toIso8601String(),
+                        ],
+                    );
+                }
+            }
+        }
 
         // BR-5 — a rejection may trip a threshold and open a follow-up.
         if ($reason !== null && Volume::toCentilitres($rejected) > 0) {

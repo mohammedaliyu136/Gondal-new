@@ -5,6 +5,7 @@ namespace App\Services\Finance;
 use App\Models\Delivery;
 use App\Models\Farmer;
 use App\Models\FarmerPaymentDelivery;
+use App\Models\Grade;
 use App\Models\PendingFarmerDeduction;
 use App\Support\Money;
 use App\Support\Settings;
@@ -66,10 +67,14 @@ class FarmerPaymentCalculator
         return Delivery::withoutDataScope()
             ->excludingTestData()
             ->where('farmer_id', $farmer->getKey())
-            // Only milk that has reached a confirmed, priced consignment. An
-            // un-dispatched delivery is real milk that nobody has valued yet;
-            // paying it would be paying a rate that does not exist.
-            ->whereHas('consignment', fn ($query) => $query->whereNotNull('rate_per_litre_minor'))
+            // Milk that has reached a confirmed, priced consignment or direct intake delivery
+            ->where(function ($query) {
+                $query->whereHas('consignment', fn ($sub) => $sub->whereNotNull('rate_per_litre_minor'))
+                    ->orWhere(function ($sub) {
+                        $sub->whereNull('consignment_id')
+                            ->where('litres_payable', '>', 0);
+                    });
+            })
             ->whereNotIn('id', FarmerPaymentDelivery::query()->select('delivery_id'))
             ->with(['consignment.grade'])
             ->orderBy('delivered_at')
@@ -94,14 +99,28 @@ class FarmerPaymentCalculator
         $deliveries ??= $this->unpaidDeliveriesFor($farmer);
         $cooperative = $farmer->cooperative;
 
-        /* 1. Each delivery valued at its own consignment's snapshotted rate,
+        /* 1. Each delivery valued at its own consignment's snapshotted rate (or default intake rate),
               rounded half-up to the kobo PER DELIVERY. */
         $lines = [];
         $gross = 0;
         $litres = '0.00';
 
         foreach ($deliveries as $delivery) {
-            $rate = (int) $delivery->consignment->rate_per_litre_minor;
+            if ($delivery->consignment && $delivery->consignment->rate_per_litre_minor !== null) {
+                $rate = (int) $delivery->consignment->rate_per_litre_minor;
+                $gradeId = $delivery->consignment->grade_id;
+                $gradeName = $delivery->consignment->grade?->name;
+                $consignmentId = $delivery->consignment_id;
+                $consignmentRef = $delivery->consignment->reference;
+            } else {
+                $defaultGrade = Grade::query()->where('code', 'GRD-A')->first() ?? Grade::query()->assignable()->orderBy('position')->first();
+                $rate = (int) ($defaultGrade?->rateOn($delivery->delivered_at)?->rate_per_litre_minor ?? 0);
+                $gradeId = $defaultGrade?->id;
+                $gradeName = $defaultGrade?->name;
+                $consignmentId = null;
+                $consignmentRef = 'Direct Intake';
+            }
+
             $payable = (string) $delivery->litres_payable;
             $lineGross = Money::valueVolume($payable, $rate);
 
@@ -115,10 +134,10 @@ class FarmerPaymentCalculator
                 'rate_per_litre_minor' => $rate,
                 // Recorded so "why was I paid B rates?" has an answer. This is
                 // the whole instrumentation of the pooled-grade decision (§1.1).
-                'grade_id' => $delivery->consignment->grade_id,
-                'grade' => $delivery->consignment->grade?->name,
-                'consignment_id' => $delivery->consignment_id,
-                'consignment' => $delivery->consignment->reference,
+                'grade_id' => $gradeId,
+                'grade' => $gradeName,
+                'consignment_id' => $consignmentId,
+                'consignment' => $consignmentRef,
                 'line_gross_minor' => $lineGross,
             ];
         }

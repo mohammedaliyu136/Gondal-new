@@ -29,7 +29,7 @@ class RequisitionAdjustItemsAction implements WorkflowStageActionHandler
 
     public function label(): string
     {
-        return 'Adjust Line Items & Quantities HOD;
+        return 'Adjust Line Items & Quantities HOD';
     }
 
     public function description(): string

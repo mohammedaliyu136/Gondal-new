@@ -360,7 +360,13 @@ class FarmerPaymentRunService
         return Delivery::withoutDataScope()
             ->excludingTestData()
             ->whereIn('farmer_id', $farmerIds)
-            ->whereHas('consignment', fn ($query) => $query->whereNotNull('rate_per_litre_minor'))
+            ->where(function ($query) {
+                $query->whereHas('consignment', fn ($sub) => $sub->whereNotNull('rate_per_litre_minor'))
+                    ->orWhere(function ($sub) {
+                        $sub->whereNull('consignment_id')
+                            ->where('litres_payable', '>', 0);
+                    });
+            })
             ->whereNotIn('id', FarmerPaymentDelivery::query()->select('delivery_id'))
             ->count();
     }
