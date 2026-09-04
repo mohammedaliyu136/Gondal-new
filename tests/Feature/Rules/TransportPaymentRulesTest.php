@@ -5,6 +5,8 @@ namespace Tests\Feature\Rules;
 use App\Authorization\ScopeType;
 use App\Exceptions\RuleViolationException;
 use App\Models\Driver;
+use App\Models\PaymentBatch;
+use App\Models\PaymentBatchItem;
 use App\Models\Route;
 use App\Models\TransportPayment;
 use App\Models\TransportPaymentRun;
@@ -12,6 +14,7 @@ use App\Models\Trip;
 use App\Models\User;
 use App\Services\Finance\TransportDisbursementService;
 use App\Services\Finance\TransportPaymentRunService;
+use App\Services\Payment\Modules\TransportPaymentService;
 use App\Support\Wat;
 use Tests\GondalTestCase;
 
@@ -333,6 +336,470 @@ class TransportPaymentRulesTest extends GondalTestCase
         $response->assertSee('Drivers and riders');
     }
 
+    public function test_run_categorization_for_drivers_and_riders(): void
+    {
+        $world = $this->makeMilkWorld();
+
+        $driver = $this->asSystem(fn () => Driver::query()->create([
+            'name' => 'Auto Driver Aminu',
+            'phone' => '08031112233',
+            'licence_no' => 'DRV-AD1',
+            'type' => 'driver',
+            'status' => 'active',
+        ]));
+        $rider = $this->asSystem(fn () => Driver::query()->create([
+            'name' => 'Bike Rider Sani',
+            'phone' => '08034445566',
+            'licence_no' => 'RDR-BS1',
+            'type' => 'rider',
+            'status' => 'active',
+        ]));
+
+        $this->arrivedTrip($world, $driver, 50_000);
+        $this->arrivedTrip($world, $rider, 35_000);
+
+        $accountant = $this->accountant();
+        $this->actingAs($accountant);
+
+        $service = app(TransportPaymentRunService::class);
+
+        // 1. Drivers only
+        $driverRun = $service->generate(null, $accountant, null, null, 'driver');
+        $this->assertSame(1, $driverRun->driver_count);
+        $this->assertSame(50_000, (int) $driverRun->total_minor);
+        $this->assertSame(TransportPaymentRun::SCOPE_DRIVER, $driverRun->scope_type);
+        $this->assertTrue($driverRun->payments()->where('driver_id', $driver->id)->exists());
+        $this->assertFalse($driverRun->payments()->where('driver_id', $rider->id)->exists());
+
+        // 2. Riders only
+        $riderRun = $service->generate(null, $accountant, null, null, 'rider');
+        $this->assertSame(1, $riderRun->driver_count);
+        $this->assertSame(35_000, (int) $riderRun->total_minor);
+        $this->assertSame(TransportPaymentRun::SCOPE_RIDER, $riderRun->scope_type);
+        $this->assertTrue($riderRun->payments()->where('driver_id', $rider->id)->exists());
+        $this->assertFalse($riderRun->payments()->where('driver_id', $driver->id)->exists());
+    }
+
+    public function test_run_categorization_for_individual_selection(): void
+    {
+        $world = $this->makeMilkWorld();
+
+        $d1 = $this->asSystem(fn () => Driver::query()->create([
+            'name' => 'Driver One',
+            'phone' => '08039990001',
+            'licence_no' => 'DRV-111',
+            'type' => 'driver',
+            'status' => 'active',
+        ]));
+        $d2 = $this->asSystem(fn () => Driver::query()->create([
+            'name' => 'Driver Two',
+            'phone' => '08039990002',
+            'licence_no' => 'DRV-222',
+            'type' => 'driver',
+            'status' => 'active',
+        ]));
+
+        $this->arrivedTrip($world, $d1, 60_000);
+        $this->arrivedTrip($world, $d2, 40_000);
+
+        $accountant = $this->accountant();
+        $this->actingAs($accountant);
+
+        $service = app(TransportPaymentRunService::class);
+
+        // Select only Driver One individually
+        $run = $service->generate(null, $accountant, null, null, 'individual', [$d1->id]);
+
+        $this->assertSame(1, $run->driver_count);
+        $this->assertSame(60_000, (int) $run->total_minor);
+        $this->assertSame(TransportPaymentRun::SCOPE_INDIVIDUAL, $run->scope_type);
+        $this->assertTrue($run->payments()->where('driver_id', $d1->id)->exists());
+        $this->assertFalse($run->payments()->where('driver_id', $d2->id)->exists());
+    }
+
+    public function test_disbursement_debits_driver_wallet_ledger(): void
+    {
+        [$run, $payment, $trip] = $this->approvedRun();
+        $driver = $payment->driver;
+
+        $wallet = $driver->wallet->fresh();
+        $initialBalance = $wallet->balance_minor;
+        $this->assertGreaterThan(0, $initialBalance);
+
+        $officer = $this->payingOfficer();
+        $this->actingAs($officer);
+
+        app(TransportDisbursementService::class)->record($payment, [
+            'amount_minor' => $payment->amount_minor,
+            'method' => 'cash',
+        ], $officer);
+
+        $wallet->refresh();
+        $this->assertSame($initialBalance - $payment->amount_minor, $wallet->balance_minor);
+
+        $tx = \App\Models\DriverWalletTransaction::query()
+            ->where('driver_id', $driver->id)
+            ->where('type', \App\Models\DriverWalletTransaction::TYPE_DEBIT)
+            ->latest('id')
+            ->first();
+
+        $this->assertNotNull($tx);
+        $this->assertSame($payment->amount_minor, $tx->amount_minor);
+    }
+
+    public function test_drivers_with_zero_balance_are_excluded_from_run(): void
+    {
+        $driverZero = $this->asSystem(fn () => Driver::query()->create([
+            'name' => 'Zero Balance Rider',
+            'phone' => '08030000000',
+            'licence_no' => 'DRV-000',
+            'type' => 'rider',
+            'status' => 'active',
+        ]));
+
+        $accountant = $this->accountant();
+        $this->actingAs($accountant);
+
+        $service = app(TransportPaymentRunService::class);
+        $eligible = $service->eligibleRecipients('all');
+
+        $this->assertFalse($eligible->pluck('driver.id')->contains($driverZero->id));
+    }
+
+    public function test_can_add_recipient_to_draft_run_and_totals_update(): void
+    {
+        $world = $this->makeMilkWorld();
+
+        $d1 = $this->asSystem(fn () => Driver::query()->create([
+            'name' => 'Initial Driver',
+            'phone' => '08035551111',
+            'licence_no' => 'DRV-INIT',
+            'type' => 'driver',
+            'status' => 'active',
+        ]));
+        $d2 = $this->asSystem(fn () => Driver::query()->create([
+            'name' => 'Added Rider',
+            'phone' => '08035552222',
+            'licence_no' => 'RDR-ADD',
+            'type' => 'rider',
+            'status' => 'active',
+        ]));
+
+        $this->arrivedTrip($world, $d1, 40_000);
+        $this->arrivedTrip($world, $d2, 30_000);
+
+        $accountant = $this->accountant();
+        $this->actingAs($accountant);
+
+        $service = app(TransportPaymentRunService::class);
+
+        // 1. Initial run created with only d1
+        $run = $service->generate(null, $accountant, null, null, 'individual', [$d1->id]);
+        $this->assertSame(1, $run->driver_count);
+        $this->assertSame(40_000, (int) $run->total_minor);
+
+        // 2. Add d2 to the draft run
+        $service->addRecipient($run, $d2, 30_000, $accountant);
+        $run->refresh();
+
+        $this->assertSame(2, $run->driver_count);
+        $this->assertSame(70_000, (int) $run->total_minor);
+        $this->assertTrue($run->payments()->where('driver_id', $d2->id)->exists());
+    }
+
+    public function test_can_edit_amount_for_partial_payment_leaving_remainder_in_wallet(): void
+    {
+        $this->world = $this->makeMilkWorld();
+
+        $rider = $this->asSystem(fn () => Driver::query()->create([
+            'name' => 'Partial Rider Kabir',
+            'phone' => '08037778899',
+            'licence_no' => 'RDR-KAB',
+            'type' => 'rider',
+            'status' => 'active',
+        ]));
+
+        $this->arrivedTrip($this->world, $rider, 50_000);
+
+        $accountant = $this->accountant();
+        $this->actingAs($accountant);
+
+        $service = app(TransportPaymentRunService::class);
+
+        // 1. Run generated with full 50,000
+        $run = $service->generate($this->world['centerA'], $accountant, null, null, 'individual', [$rider->id]);
+        $payment = $run->payments()->firstOrFail();
+        $this->assertSame(50_000, (int) $payment->amount_minor);
+
+        // 2. Edit amount for partial payment (30,000)
+        $service->updateRecipientAmount($run, $payment, 30_000, $accountant);
+        $payment->refresh();
+        $run->refresh();
+
+        $this->assertSame(30_000, (int) $payment->amount_minor);
+        $this->assertSame(30_000, (int) $run->total_minor);
+
+        // 3. Approve and disburse the 30,000
+        $run->forceFill(['status' => TransportPaymentRun::STATUS_APPROVED])->save();
+        $payment->refresh();
+        $payment->setRelation('run', $run);
+        $officer = $this->payingOfficer();
+        $this->actingAs($officer);
+
+        app(TransportDisbursementService::class)->record($payment, [
+            'amount_minor' => 30_000,
+            'method' => 'cash',
+        ], $officer);
+
+        // 4. Verify wallet balance is 50,000 - 30,000 = 20,000
+        $wallet = $rider->wallet->fresh();
+        $this->assertSame(20_000, $wallet->balance_minor);
+
+        // 5. In the next run, rider is eligible for the remaining 20,000
+        $nextEligible = $service->eligibleRecipients('all');
+        $item = $nextEligible->firstWhere('driver.id', $rider->id);
+        $this->assertNotNull($item);
+        $this->assertSame(20_000, $item['available_minor']);
+    }
+
+    public function test_can_remove_recipient_from_draft_run_releasing_legs_and_funds(): void
+    {
+        $world = $this->makeMilkWorld();
+
+        $d1 = $this->asSystem(fn () => Driver::query()->create([
+            'name' => 'Keep Driver',
+            'phone' => '08034440001',
+            'licence_no' => 'DRV-KP1',
+            'type' => 'driver',
+            'status' => 'active',
+        ]));
+        $d2 = $this->asSystem(fn () => Driver::query()->create([
+            'name' => 'Remove Rider',
+            'phone' => '08034440002',
+            'licence_no' => 'RDR-RM1',
+            'type' => 'rider',
+            'status' => 'active',
+        ]));
+
+        $trip1 = $this->arrivedTrip($world, $d1, 40_000);
+        $trip2 = $this->arrivedTrip($world, $d2, 25_000);
+
+        $accountant = $this->accountant();
+        $this->actingAs($accountant);
+
+        $service = app(TransportPaymentRunService::class);
+        $run = $service->generate(null, $accountant);
+
+        $this->assertSame(2, $run->driver_count);
+        $this->assertSame(65_000, (int) $run->total_minor);
+
+        $payment2 = $run->payments()->where('driver_id', $d2->id)->firstOrFail();
+
+        // Remove d2 from draft run
+        $service->removeRecipient($run, $payment2, $accountant);
+        $run->refresh();
+
+        $this->assertSame(1, $run->driver_count);
+        $this->assertSame(40_000, (int) $run->total_minor);
+        $this->assertFalse($run->payments()->where('driver_id', $d2->id)->exists());
+
+        // Trip was released back to queued and unassigned from run
+        $this->assertSame(Trip::PAYMENT_QUEUED, $trip2->fresh()->payment_status);
+        $this->assertNull($trip2->fresh()->payment_run_id);
+    }
+
+    public function test_cannot_modify_recipients_when_run_is_not_draft(): void
+    {
+        [$run, $payment, $trip] = $this->approvedRun();
+        $accountant = $this->accountant();
+        $this->actingAs($accountant);
+
+        $service = app(TransportPaymentRunService::class);
+
+        // 1. Cannot add recipient to approved run
+        $newDriver = $this->asSystem(fn () => Driver::query()->create([
+            'name' => 'Late Driver',
+            'phone' => '08038880000',
+            'licence_no' => 'DRV-LT1',
+            'type' => 'driver',
+            'status' => 'active',
+        ]));
+        $this->arrivedTrip($this->world, $newDriver, 15_000);
+
+        try {
+            $service->addRecipient($run, $newDriver, 15_000, $accountant);
+            $this->fail('Expected RuleViolationException for addRecipient on non-draft run');
+        } catch (RuleViolationException $e) {
+            $this->assertSame('ST-1', $e->ruleId);
+        }
+
+        // 2. Cannot update recipient amount on approved run
+        try {
+            $service->updateRecipientAmount($run, $payment, 10_000, $accountant);
+            $this->fail('Expected RuleViolationException for updateRecipientAmount on non-draft run');
+        } catch (RuleViolationException $e) {
+            $this->assertSame('ST-1', $e->ruleId);
+        }
+
+        // 3. Cannot remove recipient from approved run
+        try {
+            $service->removeRecipient($run, $payment, $accountant);
+            $this->fail('Expected RuleViolationException for removeRecipient on non-draft run');
+        } catch (RuleViolationException $e) {
+            $this->assertSame('ST-1', $e->ruleId);
+        }
+    }
+
+    public function test_approvals_controller_show_loads_transport_payment_run_relations(): void
+    {
+        $world = $this->makeMilkWorld();
+        $this->arrivedTrip($world, $this->driver('Buba Danladi'), 120_000);
+        $accountant = $this->accountant();
+        $this->actingAs($accountant);
+
+        $run = app(TransportPaymentRunService::class)->generate($world['centerA'], $accountant);
+        $instance = $run->workflowInstance;
+
+        if ($instance) {
+            $response = $this->get(route('approvals.show', $instance));
+            $response->assertOk();
+        } else {
+            $this->assertTrue(true);
+        }
+    }
+
+    public function test_cannot_create_batch_on_unapproved_run(): void
+    {
+        $world = $this->makeMilkWorld();
+        $this->arrivedTrip($world, $this->driver('Buba Danladi'), 120_000);
+        $accountant = $this->accountant();
+        $this->actingAs($accountant);
+
+        $run = app(TransportPaymentRunService::class)->generate($world['centerA'], $accountant);
+        $this->assertSame(TransportPaymentRun::STATUS_DRAFT, $run->status);
+
+        $service = app(TransportPaymentService::class);
+
+        $this->expectException(RuleViolationException::class);
+        $service->createBatch($run, 'bank_transfer', $accountant);
+    }
+
+    public function test_approved_transport_run_can_disburse_batch_and_debits_driver_wallet(): void
+    {
+        [$run, $payment, $trip] = $this->approvedRun();
+        $accountant = $this->accountant();
+        $this->actingAs($accountant);
+
+        $driver = $payment->driver;
+        $initialBalance = $driver->getOrCreateWallet()->balance_minor;
+        $this->assertSame(120_000, $initialBalance);
+
+        $service = app(TransportPaymentService::class);
+        $batch = $service->createBatch($run, 'bank_transfer', $accountant);
+
+        $this->assertSame(PaymentBatch::STATUS_INITIALIZED, $batch->status);
+        $this->assertSame(120_000, $batch->total_amount_minor);
+        $this->assertSame(1, $batch->total_items_count);
+
+        $batch = $service->disburseBatch($batch);
+
+        $this->assertSame(PaymentBatch::STATUS_COMPLETED, $batch->status);
+        $this->assertSame(1, $batch->successful_items_count);
+
+        // Verify driver wallet debited
+        $driverWallet = $driver->fresh()->wallet;
+        $this->assertSame(0, $driverWallet->balance_minor);
+        $this->assertSame(120_000, $driverWallet->total_debited_minor);
+
+        // Verify disbursement recorded
+        $this->assertSame(1, $payment->disbursements()->count());
+        $this->assertSame(120_000, (int) $payment->disbursements()->first()->amount_minor);
+
+        // Verify run and payment marked paid
+        $this->assertSame(TransportPayment::STATUS_PAID, $payment->fresh()->status);
+        $this->assertSame(TransportPaymentRun::STATUS_PAID, $run->fresh()->status);
+    }
+
+    public function test_partial_batch_disbursement_leaves_remainder_in_driver_wallet(): void
+    {
+        [$run, $payment, $trip] = $this->approvedRun();
+        $accountant = $this->accountant();
+        $this->actingAs($accountant);
+
+        $driver = $payment->driver;
+        $service = app(TransportPaymentService::class);
+
+        // Disburse partial 50,000 out of 120,000
+        $batch = $service->createBatch(
+            $run,
+            'bank_transfer',
+            $accountant,
+            'Partial payout test',
+            [['transport_payment_id' => $payment->id, 'amount_minor' => 50_000]]
+        );
+
+        $this->assertSame(50_000, $batch->total_amount_minor);
+        $batch = $service->disburseBatch($batch);
+        $this->assertSame(PaymentBatch::STATUS_COMPLETED, $batch->status);
+
+        // 50,000 debited from wallet, 70,000 remains
+        $driverWallet = $driver->fresh()->wallet;
+        $this->assertSame(70_000, $driverWallet->balance_minor);
+        $this->assertSame(50_000, $driverWallet->total_debited_minor);
+
+        // Payment line still has 70,000 outstanding and is not closed yet
+        $this->assertSame(70_000, $payment->fresh()->outstandingMinor());
+        $this->assertSame(TransportPayment::STATUS_PAYABLE, $payment->fresh()->status);
+    }
+
+    public function test_idempotency_does_not_duplicate_driver_wallet_debit(): void
+    {
+        [$run, $payment, $trip] = $this->approvedRun();
+        $accountant = $this->accountant();
+        $this->actingAs($accountant);
+
+        $driver = $payment->driver;
+        $service = app(TransportPaymentService::class);
+
+        $batch = $service->createBatch($run, 'bank_transfer', $accountant);
+        $service->disburseBatch($batch);
+
+        $this->assertSame(0, $driver->fresh()->wallet->balance_minor);
+        $this->assertSame(120_000, $driver->fresh()->wallet->total_debited_minor);
+
+        // Triggering processSuccessfulDisbursements a second time should be a no-op
+        $service->processSuccessfulDisbursements($batch, $accountant);
+
+        $this->assertSame(0, $driver->fresh()->wallet->balance_minor);
+        $this->assertSame(120_000, $driver->fresh()->wallet->total_debited_minor);
+        $this->assertSame(1, $payment->disbursements()->count());
+    }
+
+    public function test_controller_disburse_batch_and_batch_show_endpoints(): void
+    {
+        [$run, $payment, $trip] = $this->approvedRun();
+        $accountant = $this->accountant();
+        $this->actingAs($accountant);
+
+        $response = $this->post(route('transport-payments.disburse-batch', $run), [
+            'gateway' => 'bank_transfer',
+            'notes' => 'Test HTTP batch disbursement',
+            'selected_payments' => [$payment->id],
+        ]);
+
+        $response->assertRedirect(route('transport-payments.show', $run));
+
+        $batch = PaymentBatch::query()
+            ->where('source_type', $run->getMorphClass())
+            ->where('source_id', $run->id)
+            ->firstOrFail();
+
+        $this->assertSame(PaymentBatch::STATUS_COMPLETED, $batch->status);
+
+        $batchShowResponse = $this->get(route('transport-payments.batches.show', [$run, $batch]));
+        $batchShowResponse->assertOk();
+    }
+
     /* ------------------------------------------------------------ fixtures */
 
     private array $world = [];
@@ -362,10 +829,24 @@ class TransportPaymentRulesTest extends GondalTestCase
 
     private function driver(string $name, string $code = 'DRV-901'): Driver
     {
-        return $this->asSystem(fn () => Driver::query()->firstOrCreate(
-            ['name' => $name],
-            ['phone' => '0803'.substr($code, -6), 'licence_no' => $code, 'type' => 'rider', 'status' => 'active'],
-        ));
+        return $this->asSystem(function () use ($name, $code) {
+            $driver = Driver::query()->firstOrCreate(
+                ['name' => $name],
+                [
+                    'phone' => '0803'.substr($code, -6),
+                    'licence_no' => $code,
+                    'type' => 'rider',
+                    'status' => 'active',
+                ],
+            );
+            if (empty($driver->bank_name) || empty($driver->bank_account)) {
+                $driver->forceFill([
+                    'bank_name' => 'Access Bank',
+                    'bank_account' => '0123456789',
+                ])->save();
+            }
+            return $driver;
+        });
     }
 
     /** A completed leg carrying a fee — the only kind a run will claim. */

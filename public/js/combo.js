@@ -32,9 +32,15 @@
    * display can never disagree, which is what made "Myself" select as blank.
    */
   function isPlaceholder(option) {
+    if (!option || option.value !== '') return false;
     var label = textOf(option);
 
-    return option.value === '' && (label === '' || /^[—–-]+$/.test(label) || /^select\b/i.test(label) || /^choose\b/i.test(label));
+    return (
+      label === '' ||
+      /^[—–-]+$/.test(label) ||
+      /^(select|choose|search)\b/i.test(label) ||
+      /\b(select|choose|search)\b/i.test(label)
+    );
   }
 
   function enhance(select) {
@@ -42,7 +48,8 @@
     if (select.multiple || select.disabled) return;
 
     var options = Array.prototype.slice.call(select.options);
-    if (options.length < MIN_OPTIONS) return;
+    var minOptions = select.dataset.minOptions !== undefined ? parseInt(select.dataset.minOptions, 10) : MIN_OPTIONS;
+    if (options.length < minOptions) return;
 
     select.dataset.comboReady = '1';
 
@@ -88,6 +95,7 @@
     select.tabIndex = -1;
     select.setAttribute('aria-hidden', 'true');
 
+    var blurTimer = null;
     var active = -1;
     var visible = [];
 
@@ -100,18 +108,16 @@
     function render(term) {
       list.innerHTML = '';
       visible = [];
-      var needle = term.toLowerCase();
+      var needle = (term || '').trim().toLowerCase();
+      var opts = Array.prototype.slice.call(select.options);
 
-      options.forEach(function (option) {
+      opts.forEach(function (option) {
+        if (option.hidden) return;
+
         var label = textOf(option);
 
-        /*
-         * An empty value is usually a placeholder ("—", "All"), which should drop
-         * out as soon as someone starts typing. But it is sometimes a real choice
-         * — the leave form's blank option means "Myself" — so only placeholders
-         * are hidden, judged by their label rather than by their value.
-         */
-        if (isPlaceholder(option) && needle !== '') return;
+        // Don't render placeholder options as choices
+        if (isPlaceholder(option)) return;
 
         if (needle !== '' && label.toLowerCase().indexOf(needle) === -1) return;
 
@@ -169,6 +175,10 @@
     }
 
     function open() {
+      if (blurTimer) {
+        clearTimeout(blurTimer);
+        blurTimer = null;
+      }
       render(input.value === currentLabel() ? '' : input.value);
       list.hidden = false;
       input.setAttribute('aria-expanded', 'true');
@@ -176,6 +186,10 @@
     }
 
     function close() {
+      if (blurTimer) {
+        clearTimeout(blurTimer);
+        blurTimer = null;
+      }
       list.hidden = true;
       input.setAttribute('aria-expanded', 'false');
       input.value = currentLabel();
@@ -207,6 +221,11 @@
       // Auto-select text on focus so user can immediately type to replace without manually backspacing/deleting
       this.select();
     });
+    input.addEventListener('click', function () {
+      if (list.hidden) {
+        open();
+      }
+    });
     input.addEventListener('input', function () {
       render(input.value);
       list.hidden = false;
@@ -233,9 +252,27 @@
       input.value = currentLabel();
     });
 
+    select.addEventListener('combo:refresh', function () {
+      render(input.value === currentLabel() ? '' : input.value);
+      if (!list.hidden) place();
+    });
+
+    select.addEventListener('combo:open', function () {
+      if (blurTimer) {
+        clearTimeout(blurTimer);
+        blurTimer = null;
+      }
+      input.focus();
+      open();
+    });
+
+    select.addEventListener('combo:close', function () {
+      close();
+    });
+
     input.addEventListener('blur', function () {
       // Give a click on the list time to land.
-      window.setTimeout(close, 120);
+      blurTimer = window.setTimeout(close, 150);
     });
 
     /*
@@ -246,7 +283,10 @@
      */
     window.addEventListener('hashchange', close);
     document.addEventListener('click', function (event) {
-      if (!list.hidden && event.target !== input && !list.contains(event.target)) close();
+      if (!list.hidden && event.target !== input && !wrap.contains(event.target) && !list.contains(event.target)) {
+        if (event.target.closest && (event.target.closest('[data-combo-ignore]') || event.target.closest('#tr-route-filters'))) return;
+        close();
+      }
     });
   }
 

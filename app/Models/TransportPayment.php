@@ -54,6 +54,14 @@ class TransportPayment extends Model
         return $this->belongsTo(Driver::class);
     }
 
+    /**
+     * Alias for driver relationship.
+     */
+    public function transporter(): BelongsTo
+    {
+        return $this->driver();
+    }
+
     /** The trips this payment claims. One row per trip, forever. */
     public function lines(): HasMany
     {

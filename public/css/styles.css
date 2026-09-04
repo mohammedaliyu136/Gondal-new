@@ -455,9 +455,11 @@ td.actions { text-align: right; white-space: nowrap; }
 /* A failed submit reopens the modal it came from, so the typed work and the
    validation message land in the same place. Set by Blade from old('_modal'). */
 .modal.open { display: flex; align-items: flex-start; justify-content: center; padding: 5vh 16px 32px; position: fixed; inset: 0; z-index: 100; }
-.modal.open .modal-dialog { animation: modalIn 0.18s ease; }
+.modal.open .modal-dialog,
+.modal.open .modal-card { animation: modalIn 0.18s ease; }
 .modal-overlay { position: fixed; inset: 0; background: rgba(11, 29, 40, 0.55); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); }
-.modal-dialog {
+.modal-dialog,
+.modal-card {
   position: relative; z-index: 1;
   background: var(--surface);
   border-radius: 14px;
@@ -467,9 +469,12 @@ td.actions { text-align: right; white-space: nowrap; }
   overflow-y: auto;
   box-shadow: var(--shadow-lg);
 }
-.modal-dialog.wide { max-width: 960px; }
-.modal-dialog.narrow { max-width: 460px; }
-.modal:target .modal-dialog { animation: modalIn 0.18s ease; }
+.modal-dialog.wide,
+.modal-card.wide { max-width: 960px; }
+.modal-dialog.narrow,
+.modal-card.narrow { max-width: 460px; }
+.modal:target .modal-dialog,
+.modal:target .modal-card { animation: modalIn 0.18s ease; }
 @keyframes modalIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 .modal-head {
   display: flex;

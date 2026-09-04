@@ -82,7 +82,7 @@ class ApprovalsController extends Controller
         } elseif ($subject instanceof PaymentRun) {
             $subject->loadMissing(['payments.farmer', 'runBy']);
         } elseif ($subject instanceof TransportPaymentRun) {
-            $subject->loadMissing(['payments.transporter', 'runBy']);
+            $subject->loadMissing(['payments.driver', 'runBy']);
         } elseif ($subject instanceof \App\Models\Batch) {
             $subject->loadMissing(['collectionCenter', 'consignments.grade', 'discrepancyCause', 'rejectionReason']);
         }

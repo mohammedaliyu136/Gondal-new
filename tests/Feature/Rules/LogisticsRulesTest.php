@@ -8,6 +8,8 @@ use App\Exceptions\RuleViolationException;
 use App\Models\AuditEntry;
 use App\Models\CollectionCenter;
 use App\Models\Driver;
+use App\Models\DriverWallet;
+use App\Models\DriverWalletTransaction;
 use App\Models\Route as TransportRoute;
 use App\Models\Trip;
 use App\Models\User;
@@ -99,6 +101,7 @@ class LogisticsRulesTest extends GondalTestCase
     {
         $world = $this->makeMilkWorld();
         $route = $this->makeUnlocatedPointToCentreRoute();
+        [$vehicle, $driver] = $this->makeFleet();
 
         $kumbotso = $this->officerFor($world['centerA']);
         $this->actingAs($kumbotso->fresh());
@@ -108,6 +111,9 @@ class LogisticsRulesTest extends GondalTestCase
             // Dawakin Tofa's point — layer 1 passes, layer 2 must not.
             'collection_point_id' => $world['pointB']->id,
             'collection_center_id' => $world['centerB']->id,
+            'driver_id' => $driver->id,
+            'departed_at' => '2026-09-04 06:00:00',
+            'arrived_at' => '2026-09-04 07:00:00',
             'litres_carried' => '90.00',
         ])->assertStatus(403);
 
@@ -186,6 +192,8 @@ class LogisticsRulesTest extends GondalTestCase
             'collection_center_id' => $world['centerA']->id,
             'vehicle_id' => $vehicle->id,
             'driver_id' => $driver->id,
+            'departed_at' => '2026-09-04 06:00:00',
+            'arrived_at' => '2026-09-04 07:00:00',
             'litres_carried' => '118.00',
         ])->assertSessionHasNoErrors()->assertRedirect();
 
@@ -206,6 +214,41 @@ class LogisticsRulesTest extends GondalTestCase
         // Re-tariffing the route afterwards does not move the logged fee.
         $this->asSystem(fn () => $route->forceFill(['tariff_minor' => 9_000_00])->save());
         $this->assertSame(1_500_00, (int) $trip->fresh()->fee_minor);
+    }
+
+    public function test_driver_departed_at_and_arrived_at_are_required_to_log_a_trip(): void
+    {
+        $world = $this->makeMilkWorld();
+        $route = $this->makeUnlocatedPointToCentreRoute();
+
+        $officer = $this->officerFor($world['centerA']);
+        $this->actingAs($officer->fresh());
+
+        $response = $this->post(route('logistics.trips.store'), [
+            'route_id' => $route->id,
+            'collection_point_id' => $world['pointA']->id,
+            'collection_center_id' => $world['centerA']->id,
+        ]);
+
+        $response->assertSessionHasErrors(['driver_id', 'departed_at', 'arrived_at']);
+    }
+
+    public function test_modal_trip_renders_required_attributes_and_indicators(): void
+    {
+        $world = $this->makeMilkWorld();
+        $this->makeUnlocatedPointToCentreRoute();
+
+        $officer = $this->officerFor($world['centerA']);
+        $this->actingAs($officer->fresh());
+
+        $html = $this->get(route('logistics.index'))->assertOk()->getContent();
+
+        $this->assertMatchesRegularExpression('/<label for="tr-driver">[^<]*Rider \/ driver\s*<span class="req">\*<\/span>/', $html);
+        $this->assertMatchesRegularExpression('/<select id="tr-driver"[^>]*required/', $html);
+        $this->assertMatchesRegularExpression('/<label for="tr-departed">[^<]*Departed at\s*<span class="req">\*<\/span>/', $html);
+        $this->assertMatchesRegularExpression('/<input [^>]*id="tr-departed"[^>]*required/', $html);
+        $this->assertMatchesRegularExpression('/<label for="tr-arrived">[^<]*Arrived at\s*<span class="req">\*<\/span>/', $html);
+        $this->assertMatchesRegularExpression('/<input [^>]*id="tr-arrived"[^>]*required/', $html);
     }
 
     /**
@@ -236,9 +279,8 @@ class LogisticsRulesTest extends GondalTestCase
     }
 
     /**
-     * A required picker that renders with nothing in it is a screen that cannot
-     * be used, and the endpoint selects are new. Both must be populated for the
-     * role whose whole job this screen is.
+     * The route handles the leg endpoints, so the route picker is searchable and populated,
+     * while manual center/point selects are replaced by auto-bound route endpoints.
      */
     public function test_the_trip_forms_endpoint_pickers_are_populated(): void
     {
@@ -250,16 +292,124 @@ class LogisticsRulesTest extends GondalTestCase
 
         $html = $this->get(route('logistics.index'))->assertOk()->getContent();
 
-        foreach (['tr-center' => 'Collection center', 'tr-point' => 'Collection point'] as $id => $what) {
-            preg_match('/<select id="'.$id.'".*?<\/select>/s', $html, $matches);
+        // Verify route selector is present, searchable, and has options
+        preg_match('/<select id="tr-route".*?<\/select>/s', $html, $matches);
+        $this->assertNotEmpty($matches, 'Route picker is missing from the trip form.');
+        $this->assertStringContainsString('data-searchable', $matches[0]);
+        $this->assertGreaterThan(1, substr_count($matches[0], '<option'), 'Route picker rendered with nothing but placeholder.');
 
-            $this->assertNotEmpty($matches, $what.' picker is missing from the trip form.');
-            $this->assertGreaterThan(
-                1,
-                substr_count($matches[0], '<option'),
-                $what.' picker rendered with nothing but its placeholder.',
-            );
-        }
+        // Verify hidden endpoint inputs are present for auto-binding
+        $this->assertStringContainsString('id="tr-center"', $html);
+        $this->assertStringContainsString('id="tr-point"', $html);
+    }
+
+    /**
+     * Test that logging a trip supports plus and minus adjustments and automatically
+     * credits the driver's electronic wallet.
+     */
+    public function test_trip_logging_supports_plus_and_minus_adjustments_and_credits_driver_wallet(): void
+    {
+        $world = $this->makeMilkWorld();
+        [$vehicle, $driver] = $this->makeFleet();
+        $officer = $this->officerFor($world['centerA']);
+        $this->actingAs($officer->fresh());
+
+        $route = $this->asSystem(fn () => TransportRoute::query()->create([
+            'name' => 'Kumbotso → Factory',
+            'from_type' => TransportRoute::ENDPOINT_CENTER,
+            'from_id' => $world['centerA']->id,
+            'to_type' => TransportRoute::ENDPOINT_FACTORY,
+            'to_id' => null,
+            'distance_km' => '25.00',
+            'tariff_minor' => 5_000_00, // ₦5,000.00 base tariff
+            'status' => 'active',
+        ]));
+
+        // Post trip with:
+        // Base: ₦5,000.00
+        // Plus: ₦1,200.00 (detour to extra collection point)
+        // Minus: ₦500.00 (late dispatch penalty)
+        // Net fee: ₦5,700.00
+        $response = $this->post(route('logistics.trips.store'), [
+            'route_id' => $route->id,
+            'collection_center_id' => $world['centerA']->id,
+            'driver_id' => $driver->id,
+            'vehicle_id' => $vehicle->id,
+            'departed_at' => '2026-09-04T08:00',
+            'arrived_at' => '2026-09-04T09:30',
+            'litres_carried' => '850.00',
+            'plus_amount' => '1200.00',
+            'plus_reason' => 'Detour to extra collection point at Kwanar Dawaki',
+            'minus_amount' => '500.00',
+            'minus_reason' => 'Late dispatch penalty',
+        ]);
+
+        $response->assertRedirect();
+
+        $trip = Trip::query()->latest('id')->firstOrFail();
+        $this->assertSame(5_000_00, (int) $trip->route_tariff_minor_snapshot);
+        $this->assertSame(1_200_00, (int) $trip->plus_amount_minor);
+        $this->assertSame('Detour to extra collection point at Kwanar Dawaki', $trip->plus_reason);
+        $this->assertSame(500_00, (int) $trip->minus_amount_minor);
+        $this->assertSame('Late dispatch penalty', $trip->minus_reason);
+        $this->assertSame(5_700_00, (int) $trip->fee_minor);
+
+        // Verify driver wallet was automatically created and credited
+        $wallet = $driver->wallet()->first();
+        $this->assertNotNull($wallet, 'Driver wallet should be created automatically.');
+        $this->assertSame(5_700_00, (int) $wallet->balance_minor);
+        $this->assertSame(5_700_00, (int) $wallet->total_credited_minor);
+        $this->assertSame(0, (int) $wallet->total_debited_minor);
+
+        // Verify wallet transaction ledger
+        $txn = DriverWalletTransaction::query()->where('driver_id', $driver->id)->firstOrFail();
+        $this->assertSame(DriverWalletTransaction::TYPE_CREDIT, $txn->type);
+        $this->assertSame(5_700_00, (int) $txn->amount_minor);
+        $this->assertSame(0, (int) $txn->balance_before_minor);
+        $this->assertSame(5_700_00, (int) $txn->balance_after_minor);
+        $this->assertSame(Trip::class, $txn->source_type);
+        $this->assertSame($trip->id, (int) $txn->source_id);
+        $this->assertStringContainsString($trip->reference, $txn->description);
+        $this->assertSame(1_200_00, $txn->meta['plus_amount_minor']);
+        $this->assertSame(500_00, $txn->meta['minus_amount_minor']);
+
+        // Verify logistics index shows fee breakdown
+        $indexHtml = $this->get(route('logistics.index'))->assertOk()->getContent();
+        $this->assertStringContainsString($trip->reference, $indexHtml);
+        $this->assertStringContainsString('₦5,700.00', $indexHtml);
+        $this->assertStringContainsString('+₦1,200.00', $indexHtml);
+        $this->assertStringContainsString('-₦500.00', $indexHtml);
+    }
+
+    /**
+     * Test that fleet register screen displays driver wallet balance and ledger modal.
+     */
+    public function test_fleet_screen_displays_driver_wallet_balance_and_ledger(): void
+    {
+        $world = $this->makeMilkWorld();
+        [$vehicle, $driver] = $this->makeFleet();
+        $officer = $this->officerFor($world['centerA']);
+        $this->assignRole($officer, 'Logistics Officer', ScopeType::Network);
+        $this->actingAs($officer->fresh());
+
+        // Credit driver wallet with ₦15,000
+        $driver->getOrCreateWallet();
+        app(\App\Services\Finance\DriverWalletService::class)->credit(
+            driver: $driver,
+            amountMinor: 15_000_00,
+            type: DriverWalletTransaction::TYPE_CREDIT,
+            source: null,
+            description: 'Monthly incentive bonus',
+            actor: $officer,
+        );
+
+        $response = $this->get(route('fleet.index'))->assertOk();
+        $html = $response->getContent();
+
+        $this->assertStringContainsString('Wallet balance', $html);
+        $this->assertStringContainsString('₦15,000.00', $html);
+        $this->assertStringContainsString('modal-driver-wallet-' . $driver->id, $html);
+        $this->assertStringContainsString('Monthly incentive bonus', $html);
     }
 
     /* ------------------------------------------------------------------ */

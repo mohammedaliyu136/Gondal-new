@@ -98,10 +98,20 @@ class LogisticsController extends Controller
             'collection_point_id' => ['nullable', 'exists:collection_points,id'],
             'collection_center_id' => ['nullable', 'exists:collection_centers,id'],
             'vehicle_id' => ['nullable', 'exists:vehicles,id'],
-            'driver_id' => ['nullable', 'exists:drivers,id'],
-            'departed_at' => ['nullable', 'date'],
-            'arrived_at' => ['nullable', 'date', 'after_or_equal:departed_at'],
+            'driver_id' => ['required', 'exists:drivers,id'],
+            'departed_at' => ['required', 'date'],
+            'arrived_at' => ['required', 'date', 'after_or_equal:departed_at'],
             'litres_carried' => ['nullable', 'numeric', 'min:0'],
+            'plus_amount' => ['nullable', 'numeric', 'min:0'],
+            'plus_reason' => ['nullable', 'string', 'max:255'],
+            'minus_amount' => ['nullable', 'numeric', 'min:0'],
+            'minus_reason' => ['nullable', 'string', 'max:255'],
+        ], [], [
+            'driver_id' => 'rider / driver',
+            'departed_at' => 'departed at',
+            'arrived_at' => 'arrived at',
+            'plus_amount' => 'addition amount',
+            'minus_amount' => 'deduction amount',
         ]);
 
         // §9 — a route is reference data with no scope of its own. What the trip

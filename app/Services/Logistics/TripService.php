@@ -6,10 +6,13 @@ use App\Authorization\Access;
 use App\Exceptions\RuleViolationException;
 use App\Models\CollectionCenter;
 use App\Models\CollectionPoint;
+use App\Models\Driver;
+use App\Models\DriverWalletTransaction;
 use App\Models\Route;
 use App\Models\Trip;
 use App\Models\User;
 use App\Services\Audit\AuditLogger;
+use App\Services\Finance\DriverWalletService;
 use App\Support\Money;
 use App\Support\Sequences;
 use App\Support\Volume;
@@ -38,6 +41,7 @@ class TripService
     public function __construct(
         private readonly AuditLogger $audit,
         private readonly Access $access,
+        private readonly DriverWalletService $driverWallets,
     ) {}
 
     /**
@@ -63,6 +67,18 @@ class TripService
             'Log a trip on '.$route->name,
         );
 
+        $baseTariffMinor = (int) $route->tariff_minor;
+        $plusAmountMinor = isset($data['plus_amount'])
+            ? (int) round(((float) $data['plus_amount']) * 100)
+            : (int) ($data['plus_amount_minor'] ?? 0);
+        $minusAmountMinor = isset($data['minus_amount'])
+            ? (int) round(((float) $data['minus_amount']) * 100)
+            : (int) ($data['minus_amount_minor'] ?? 0);
+        $plusReason = !empty($data['plus_reason']) ? trim((string) $data['plus_reason']) : null;
+        $minusReason = !empty($data['minus_reason']) ? trim((string) $data['minus_reason']) : null;
+
+        $finalFeeMinor = max(0, $baseTariffMinor + $plusAmountMinor - $minusAmountMinor);
+
         $trip = Trip::query()->create([
             'reference' => Sequences::next('trips'),
             'route_id' => $route->getKey(),
@@ -76,10 +92,48 @@ class TripService
             // See Trip's docblock: an observation, not a derived figure, and the
             // choice between the two is an open business decision.
             'litres_carried' => $data['litres_carried'] ?? 0,
-            'fee_minor' => (int) $route->tariff_minor,
-            'route_tariff_minor_snapshot' => (int) $route->tariff_minor,
+            'fee_minor' => $finalFeeMinor,
+            'route_tariff_minor_snapshot' => $baseTariffMinor,
+            'plus_amount_minor' => $plusAmountMinor,
+            'plus_reason' => $plusReason,
+            'minus_amount_minor' => $minusAmountMinor,
+            'minus_reason' => $minusReason,
             'payment_status' => Trip::PAYMENT_QUEUED,
         ]);
+
+        // Auto-credit driver/rider electronic wallet
+        if ($trip->driver_id && $finalFeeMinor > 0) {
+            $driver = Driver::query()->find($trip->driver_id);
+            if ($driver) {
+                $desc = "Trip {$trip->reference} ({$route->name})";
+                if ($plusAmountMinor > 0 && $minusAmountMinor > 0) {
+                    $desc .= ' [+' . Money::format($plusAmountMinor) . ', -' . Money::format($minusAmountMinor) . ']';
+                } elseif ($plusAmountMinor > 0) {
+                    $desc .= ' [+' . Money::format($plusAmountMinor) . ($plusReason ? ": {$plusReason}" : '') . ']';
+                } elseif ($minusAmountMinor > 0) {
+                    $desc .= ' [-' . Money::format($minusAmountMinor) . ($minusReason ? ": {$minusReason}" : '') . ']';
+                }
+
+                $this->driverWallets->credit(
+                    driver: $driver,
+                    amountMinor: $finalFeeMinor,
+                    type: DriverWalletTransaction::TYPE_CREDIT,
+                    source: $trip,
+                    description: $desc,
+                    actor: $actor,
+                    meta: [
+                        'trip_reference' => $trip->reference,
+                        'route_name' => $route->name,
+                        'base_tariff_minor' => $baseTariffMinor,
+                        'plus_amount_minor' => $plusAmountMinor,
+                        'plus_reason' => $plusReason,
+                        'minus_amount_minor' => $minusAmountMinor,
+                        'minus_reason' => $minusReason,
+                        'net_fee_minor' => $finalFeeMinor,
+                    ],
+                );
+            }
+        }
 
         $this->audit->created(
             $trip,
@@ -93,7 +147,9 @@ class TripService
             ),
             'Logistics',
             [
-                'route_tariff_snapshot_minor' => (int) $route->tariff_minor,
+                'route_tariff_snapshot_minor' => $baseTariffMinor,
+                'plus_amount_minor' => $plusAmountMinor,
+                'minus_amount_minor' => $minusAmountMinor,
                 'collection_point_id' => $point?->getKey(),
                 'collection_center_id' => $center?->getKey(),
             ],
@@ -102,6 +158,7 @@ class TripService
 
         return $trip;
     }
+
 
     /**
      * Where the leg actually ran.

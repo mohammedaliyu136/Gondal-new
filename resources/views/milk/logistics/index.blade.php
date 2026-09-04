@@ -103,7 +103,25 @@
                 <td>{{ $trip->vehicle?->registration ?? '—' }}</td>
                 <td class="num">{{ \App\Support\Volume::format($trip->litres_carried, false) }}</td>
                 @if ($seesPayments)
-                  <td class="num">{{ \App\Support\Money::format($trip->fee_minor) }}</td>
+                  <td class="num">
+                    <div style="font-weight:700;">{{ \App\Support\Money::format($trip->fee_minor) }}</div>
+                    @if ($trip->plus_amount_minor > 0 || $trip->minus_amount_minor > 0)
+                      @php
+                        $feeBreakdownTitle = 'Base: ' . $trip->formattedBaseTariff();
+                        if ($trip->plus_amount_minor) {
+                          $feeBreakdownTitle .= ' | +' . $trip->formattedPlusAmount() . ($trip->plus_reason ? ' (' . $trip->plus_reason . ')' : '');
+                        }
+                        if ($trip->minus_amount_minor) {
+                          $feeBreakdownTitle .= ' | -' . $trip->formattedMinusAmount() . ($trip->minus_reason ? ' (' . $trip->minus_reason . ')' : '');
+                        }
+                      @endphp
+                      <div class="cell-sub" style="font-size:0.75rem; white-space:nowrap;" title="{{ $feeBreakdownTitle }}">
+                        Base {{ $trip->formattedBaseTariff() }}
+                        @if ($trip->plus_amount_minor) <span style="color:#0b7d54; font-weight:600;">+{{ $trip->formattedPlusAmount() }}</span>@endif
+                        @if ($trip->minus_amount_minor) <span style="color:#dc2626; font-weight:600;">-{{ $trip->formattedMinusAmount() }}</span>@endif
+                      </div>
+                    @endif
+                  </td>
                   <td><span class="badge {{ ['queued' => 'warning', 'approved' => 'info', 'paid' => 'success'][$trip->payment_status] ?? 'muted' }}">
                     {{ ucfirst($trip->payment_status) }}</span></td>
                 @endif
@@ -124,71 +142,182 @@
   @if ($canLog)
     <div id="modal-trip" class="modal">
       <a href="#" class="modal-overlay"></a>
-      <div class="modal-dialog">
+      <div class="modal-dialog" style="max-width:680px; width:95%;">
         <div class="modal-head">
-          <div><h3>Log a Trip</h3><p>The trip keeps the route&rsquo;s fee as it stands today</p></div>
+          <div>
+            <h3>Log a Trip</h3>
+            <p>Record a transport run, apply adjustments, and credit driver wallet</p>
+          </div>
           <a href="#" class="modal-close">&times;</a>
         </div>
-        <form method="POST" action="{{ route('logistics.trips.store') }}">
+        <form method="POST" action="{{ route('logistics.trips.store') }}" id="trip-log-form">
           @csrf
           <input type="hidden" name="_modal" value="modal-trip" />
-          <div class="modal-body">
+          {{-- Hidden endpoints auto-derived from selected route --}}
+          <input type="hidden" id="tr-center" name="collection_center_id" value="{{ old('collection_center_id') }}" />
+          <input type="hidden" id="tr-point" name="collection_point_id" value="{{ old('collection_point_id') }}" />
+
+          <div class="modal-body" style="padding:16px 20px;">
             @include('partials.modal-errors', ['modal' => 'modal-trip'])
-            <div class="form-grid">
-              <div class="field"><label for="tr-route">Route <span class="req">*</span></label>
-                <select id="tr-route" name="route_id" required>
-                  @foreach ($routes as $route)
-                    <option value="{{ $route->id }}">
-                      {{ $route->name }}@if ($seesPayments) — {{ $route->formattedTariff() }}@endif
+
+            {{-- 1. Route Selection (Searchable & Filterable) --}}
+            <div class="field" style="margin-bottom:16px;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                <label for="tr-route" style="margin:0;"><strong>Route</strong> <span class="req">*</span></label>
+                <span class="hint" style="margin:0;">Endpoints are bound automatically from the route</span>
+              </div>
+
+              {{-- Quick Category Filter Chips --}}
+              <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px;" id="tr-route-filters" data-combo-ignore>
+                <button type="button" class="btn btn-sm btn-primary active-route-filter" data-filter="all" style="font-size:0.75rem; padding:3px 10px;">All</button>
+                <button type="button" class="btn btn-sm btn-ghost" data-filter="center_factory" style="font-size:0.75rem; padding:3px 10px;">Centre → Factory</button>
+                <button type="button" class="btn btn-sm btn-ghost" data-filter="point_center" style="font-size:0.75rem; padding:3px 10px;">Point → Centre</button>
+                <button type="button" class="btn btn-sm btn-ghost" data-filter="point_factory" style="font-size:0.75rem; padding:3px 10px;">Point → Factory</button>
+                <button type="button" class="btn btn-sm btn-ghost" data-filter="center_center" style="font-size:0.75rem; padding:3px 10px;">Centre → Centre</button>
+              </div>
+
+              <select id="tr-route" name="route_id" required
+                      data-searchable data-min-options="0"
+                      data-combo-placeholder="Search routes by origin, destination, or name…"
+                      style="font-weight:600;">
+                <option value="">Select transit route...</option>
+                @foreach ($routes as $route)
+                  @php
+                    $cat = 'other';
+                    if ($route->from_type === 'collection_center' && $route->to_type === 'factory') $cat = 'center_factory';
+                    elseif ($route->from_type === 'collection_point' && $route->to_type === 'collection_center') $cat = 'point_center';
+                    elseif ($route->from_type === 'collection_point' && $route->to_type === 'factory') $cat = 'point_factory';
+                    elseif ($route->from_type === 'collection_center' && $route->to_type === 'collection_center') $cat = 'center_center';
+                  @endphp
+                  <option value="{{ $route->id }}"
+                          data-category="{{ $cat }}"
+                          data-tariff="{{ number_format($route->tariff_minor / 100, 2, '.', '') }}"
+                          data-formatted-tariff="{{ $route->formattedTariff() }}"
+                          data-distance="{{ $route->distance_km ?? '' }}"
+                          data-from-type="{{ $route->from_type }}"
+                          data-from-id="{{ $route->from_id }}"
+                          data-to-type="{{ $route->to_type }}"
+                          data-to-id="{{ $route->to_id }}"
+                          data-name="{{ $route->name }}"
+                          @selected(old('route_id') == $route->id)>
+                    {{ $route->name }} — {{ $route->formattedTariff() }}@if($route->distance_km) ({{ $route->distance_km }} km)@endif
+                  </option>
+                @endforeach
+              </select>
+
+              {{-- Visual Route Summary Card --}}
+              <div id="tr-route-summary" style="display:none; margin-top:10px; padding:10px 14px; background:var(--card, #f8fafc); border:1px solid var(--border, #e2e8f0); border-radius:8px; font-size:0.85rem;">
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
+                  <div>
+                    <span style="color:var(--text-muted); font-size:0.75rem; text-transform:uppercase; font-weight:600;">Route / Leg</span>
+                    <div id="tr-summary-leg" style="font-weight:700; color:var(--text-bright); font-size:0.95rem;">—</div>
+                  </div>
+                  <div style="text-align:right;">
+                    <span style="color:var(--text-muted); font-size:0.75rem; text-transform:uppercase; font-weight:600;">Base Tariff</span>
+                    <div id="tr-summary-tariff" style="font-weight:800; color:#0b7d54; font-size:1.1rem;">—</div>
+                  </div>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px; padding-top:6px; border-top:1px dashed var(--border, #e2e8f0); font-size:0.8rem; color:var(--text-muted);">
+                  <span id="tr-summary-endpoints">—</span>
+                  <span id="tr-summary-distance">—</span>
+                </div>
+              </div>
+            </div>
+
+            {{-- 2. Rider / Driver & Vehicle --}}
+            <div class="form-grid" style="margin-bottom:14px;">
+              <div class="field">
+                <label for="tr-driver">Rider / driver <span class="req">*</span></label>
+                <select id="tr-driver" name="driver_id" required>
+                  <option value="">Select rider or driver...</option>
+                  @foreach ($drivers as $driver)
+                    <option value="{{ $driver->id }}" @selected(old('driver_id') == $driver->id)>
+                      {{ $driver->name }} ({{ ucfirst($driver->type) }}) &bull; Bal: {{ $driver->formattedWalletBalance() }}
                     </option>
                   @endforeach
                 </select>
-                <div class="hint">Route tariffs are edited in Settings.</div></div>
-              {{--
-                SCOPE-1 — the route is a tariff template and most of them name no
-                places at all, so the leg's endpoints are recorded here. Without
-                them a trip belongs to nobody: it shows on no point-, centre- or
-                LGA-scoped list, and its cost cannot be set against the point's
-                transport fee.
-              --}}
-              <div class="field"><label for="tr-center">Collection center <span class="req">*</span></label>
-                <select id="tr-center" name="collection_center_id" required>
-                  <option value="">&mdash;</option>
-                  @foreach ($centers as $center)
-                    <option value="{{ $center->id }}" @selected(old('collection_center_id') == $center->id)>{{ $center->name }}</option>
-                  @endforeach
-                </select>
-                <div class="hint">The centre this leg served, whether it collected from it or delivered to it.</div></div>
-              <div class="field"><label for="tr-point">Collection point</label>
-                <select id="tr-point" name="collection_point_id" data-searchable data-combo-placeholder="Search points…">
-                  <option value="">None — this leg ran from the center</option>
-                  @foreach ($points as $point)
-                    <option value="{{ $point->id }}" @selected(old('collection_point_id') == $point->id)>{{ $point->name }} &mdash; {{ $point->code }}</option>
-                  @endforeach
-                </select>
-                <div class="hint">Name the point on a point&rarr;center run so its transport cost is attributable.</div></div>
-              <div class="field"><label for="tr-driver">Rider / driver</label>
-                <select id="tr-driver" name="driver_id">
-                  <option value="">Unassigned</option>
-                  @foreach ($drivers as $driver)
-                    <option value="{{ $driver->id }}">{{ $driver->name }} ({{ $driver->type }})</option>
-                  @endforeach
-                </select></div>
-              <div class="field"><label for="tr-vehicle">Vehicle</label>
+              </div>
+
+              <div class="field">
+                <label for="tr-vehicle">Vehicle</label>
                 <select id="tr-vehicle" name="vehicle_id">
                   <option value="">Unassigned</option>
                   @foreach ($vehicles as $vehicle)
-                    <option value="{{ $vehicle->id }}">{{ $vehicle->registration }} ({{ $vehicle->type }})</option>
+                    <option value="{{ $vehicle->id }}" @selected(old('vehicle_id') == $vehicle->id)>
+                      {{ $vehicle->registration }} ({{ $vehicle->type }})
+                    </option>
                   @endforeach
-                </select></div>
-              <div class="field"><label for="tr-litres">Litres carried</label>
-                <input type="text" id="tr-litres" name="litres_carried" inputmode="decimal" value="0" />
-                <div class="hint">Count accepted litres only. Rejected milk is not carried and is not paid for.</div></div>
-              <div class="field"><label for="tr-departed">Departed at</label>
+                </select>
+              </div>
+            </div>
+
+            {{-- 3. Operations: Litres, Departed, Arrived --}}
+            <div class="form-grid" style="margin-bottom:16px;">
+              <div class="field">
+                <label for="tr-litres">Litres carried</label>
+                <input type="text" id="tr-litres" name="litres_carried" inputmode="decimal" value="{{ old('litres_carried', '0') }}" />
+                <div class="hint">Count accepted litres only.</div>
+              </div>
+              <div class="field">
+                <label for="tr-departed">Departed at <span class="req">*</span></label>
                 <input type="datetime-local" id="tr-departed" name="departed_at"
-                       value="{{ \App\Support\Wat::forInput() }}" /></div>
-              <div class="field"><label for="tr-arrived">Arrived at</label>
-                <input type="datetime-local" id="tr-arrived" name="arrived_at" /></div>
+                       value="{{ old('departed_at', \App\Support\Wat::forInput()) }}" required />
+              </div>
+              <div class="field">
+                <label for="tr-arrived">Arrived at <span class="req">*</span></label>
+                <input type="datetime-local" id="tr-arrived" name="arrived_at"
+                       value="{{ old('arrived_at') }}" required />
+              </div>
+            </div>
+
+            {{-- 4. Tariff Adjustments (Plus / Minus / Both) --}}
+            <div style="background:var(--card, #f8fafc); border:1px solid var(--border, #e2e8f0); border-radius:8px; padding:14px 16px; margin-bottom:14px;">
+              <div style="font-weight:700; font-size:0.92rem; color:var(--text-bright); margin-bottom:4px; display:flex; align-items:center; gap:6px;">
+                <span>&#9878;</span> Trip Adjustments &amp; Allowances
+              </div>
+              <p style="margin:0 0 12px 0; font-size:0.8rem; color:var(--text-muted);">
+                Add bonus/hardship for extra detours or subtract penalties for delayed dispatch / milk spoilage.
+              </p>
+
+              {{-- Positive Adjustment --}}
+              <div class="form-grid" style="margin-bottom:10px;">
+                <div class="field">
+                  <label for="tr-plus-amount" style="color:#0b7d54;">(+) Addition / Bonus (₦)</label>
+                  <input type="number" step="0.01" min="0" id="tr-plus-amount" name="plus_amount"
+                         placeholder="0.00" value="{{ old('plus_amount') }}" style="border-color:#a7f3d0;" />
+                </div>
+                <div class="field">
+                  <label for="tr-plus-reason">Addition reason</label>
+                  <input type="text" id="tr-plus-reason" name="plus_reason"
+                         placeholder="e.g. Extra collection route detour, emergency pickup" value="{{ old('plus_reason') }}" />
+                </div>
+              </div>
+
+              {{-- Negative Adjustment --}}
+              <div class="form-grid" style="margin-bottom:12px;">
+                <div class="field">
+                  <label for="tr-minus-amount" style="color:#dc2626;">(-) Deduction / Penalty (₦)</label>
+                  <input type="number" step="0.01" min="0" id="tr-minus-amount" name="minus_amount"
+                         placeholder="0.00" value="{{ old('minus_amount') }}" style="border-color:#fecaca;" />
+                </div>
+                <div class="field">
+                  <label for="tr-minus-reason">Deduction reason</label>
+                  <input type="text" id="tr-minus-reason" name="minus_reason"
+                         placeholder="e.g. Rider delayed dispatch causing spoilage" value="{{ old('minus_reason') }}" />
+                </div>
+              </div>
+
+              {{-- Live Calculated Net Payable Box --}}
+              <div style="background:#fff; border:1px solid var(--border, #e2e8f0); border-radius:6px; padding:12px 14px; display:flex; justify-content:space-between; align-items:center;">
+                <div>
+                  <span style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; font-weight:700;">Net Payable Trip Fee</span>
+                  <div id="tr-calc-breakdown" style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">Base ₦0.00</div>
+                </div>
+                <div id="tr-calc-total" style="font-size:1.35rem; font-weight:800; color:#0b7d54;">₦0.00</div>
+              </div>
+              <div style="font-size:0.75rem; color:var(--text-muted); margin-top:6px; display:flex; align-items:center; gap:4px;">
+                <span>&#128181;</span> Credited automatically to the rider/driver's electronic wallet upon logging.
+              </div>
             </div>
           </div>
           <div class="modal-foot">
@@ -198,5 +327,159 @@
         </form>
       </div>
     </div>
+
+    <script>
+      document.addEventListener('DOMContentLoaded', function() {
+        const routeSelect = document.getElementById('tr-route');
+        const centerInput = document.getElementById('tr-center');
+        const pointInput = document.getElementById('tr-point');
+        const summaryBox = document.getElementById('tr-route-summary');
+        const summaryLeg = document.getElementById('tr-summary-leg');
+        const summaryTariff = document.getElementById('tr-summary-tariff');
+        const summaryEndpoints = document.getElementById('tr-summary-endpoints');
+        const summaryDistance = document.getElementById('tr-summary-distance');
+
+        const plusAmountInput = document.getElementById('tr-plus-amount');
+        const minusAmountInput = document.getElementById('tr-minus-amount');
+        const calcBreakdown = document.getElementById('tr-calc-breakdown');
+        const calcTotal = document.getElementById('tr-calc-total');
+
+        const pointToCenterMap = {
+          @foreach ($points as $p)
+            '{{ $p->id }}': '{{ $p->collection_center_id }}',
+          @endforeach
+        };
+
+        function formatNaira(amount) {
+          return '₦' + Number(amount).toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+
+        // Category filter chips for fast search
+        const filterBtns = document.querySelectorAll('#tr-route-filters button');
+        filterBtns.forEach(btn => {
+          btn.addEventListener('mousedown', function(e) {
+            e.preventDefault(); // Keep focus; prevent blur from closing combobox
+          });
+
+          btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            filterBtns.forEach(b => {
+              b.classList.remove('btn-primary');
+              b.classList.add('btn-ghost');
+            });
+            this.classList.remove('btn-ghost');
+            this.classList.add('btn-primary');
+
+            const filter = this.dataset.filter;
+            const comboInput = routeSelect.parentElement ? routeSelect.parentElement.querySelector('.combo-input') : null;
+
+            Array.from(routeSelect.options).forEach(opt => {
+              if (!opt.value) return;
+              const matches = filter === 'all' || opt.dataset.category === filter;
+              opt.hidden = !matches;
+            });
+
+            // If currently selected route does not match filter, reset selection
+            const currentOpt = routeSelect.options[routeSelect.selectedIndex];
+            if (currentOpt && currentOpt.value && currentOpt.hidden) {
+              routeSelect.value = '';
+              updateRouteDetails();
+            }
+
+            if (comboInput) {
+              comboInput.value = '';
+            }
+
+            // Immediately pop open dropdown showing all routes matching this category
+            routeSelect.dispatchEvent(new CustomEvent('combo:open'));
+          });
+        });
+
+        function updateRouteDetails() {
+          const opt = routeSelect.options[routeSelect.selectedIndex];
+          if (!opt || !opt.value) {
+            if (summaryBox) summaryBox.style.display = 'none';
+            centerInput.value = '';
+            pointInput.value = '';
+            updateCalculations(0);
+            return;
+          }
+
+          const fromType = opt.dataset.fromType;
+          const fromId = opt.dataset.fromId;
+          const toType = opt.dataset.toType;
+          const toId = opt.dataset.toId;
+          const baseTariff = parseFloat(opt.dataset.tariff) || 0;
+
+          // Auto-resolve endpoints
+          let resolvedCenterId = '';
+          let resolvedPointId = '';
+
+          if (fromType === 'collection_point' && fromId) {
+            resolvedPointId = fromId;
+            resolvedCenterId = pointToCenterMap[fromId] || (toType === 'collection_center' ? toId : '');
+          } else if (fromType === 'collection_center' && fromId) {
+            resolvedCenterId = fromId;
+          } else if (toType === 'collection_center' && toId) {
+            resolvedCenterId = toId;
+          }
+
+          centerInput.value = resolvedCenterId;
+          pointInput.value = resolvedPointId;
+
+          if (summaryBox) {
+            summaryBox.style.display = 'block';
+            summaryLeg.textContent = opt.dataset.name || opt.text;
+            summaryTariff.textContent = opt.dataset.formattedTariff || formatNaira(baseTariff);
+            if (summaryEndpoints) {
+              const fromLabel = fromType ? fromType.replace('collection_', '').replace('_', ' ') : 'Origin';
+              const toLabel = toType ? toType.replace('collection_', '').replace('_', ' ') : 'Destination';
+              summaryEndpoints.textContent = `Transit: ${fromLabel.toUpperCase()} → ${toLabel.toUpperCase()}`;
+            }
+            if (summaryDistance) {
+              summaryDistance.textContent = opt.dataset.distance ? `${opt.dataset.distance} km` : '';
+            }
+          }
+
+          updateCalculations(baseTariff);
+        }
+
+        function updateCalculations(base) {
+          if (typeof base === 'undefined') {
+            const opt = routeSelect.options[routeSelect.selectedIndex];
+            base = opt && opt.value ? (parseFloat(opt.dataset.tariff) || 0) : 0;
+          }
+
+          const plus = parseFloat(plusAmountInput.value) || 0;
+          const minus = parseFloat(minusAmountInput.value) || 0;
+          const net = Math.max(0, base + plus - minus);
+
+          let breakdownParts = ['Base ' + formatNaira(base)];
+          if (plus > 0) breakdownParts.push('+' + formatNaira(plus));
+          if (minus > 0) breakdownParts.push('-' + formatNaira(minus));
+
+          calcBreakdown.textContent = breakdownParts.join(' ');
+          calcTotal.textContent = formatNaira(net);
+        }
+
+        if (routeSelect) {
+          routeSelect.addEventListener('change', updateRouteDetails);
+        }
+        if (plusAmountInput) {
+          plusAmountInput.addEventListener('input', () => updateCalculations());
+        }
+        if (minusAmountInput) {
+          minusAmountInput.addEventListener('input', () => updateCalculations());
+        }
+
+        // Initialize state on load
+        if (routeSelect && routeSelect.value) {
+          updateRouteDetails();
+        }
+      });
+    </script>
   @endif
 @endsection
+

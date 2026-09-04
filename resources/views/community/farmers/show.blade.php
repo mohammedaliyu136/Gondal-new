@@ -413,7 +413,7 @@
 
               <div class="field">
                 <label for="uf-account-name">Account Beneficiary Name</label>
-                <input type="text" id="uf-account-name" name="account_name" value="{{ old('account_name', $farmer->account_name) }}" placeholder="Auto-retrieved upon account entry" style="background:#f8fafc; font-weight:600; color:#0f172a;" />
+                <input type="text" id="uf-account-name" name="account_name" value="{{ old('account_name', $farmer->account_name) }}" readonly placeholder="Auto-retrieved upon account entry" style="background:#f8fafc; font-weight:600; color:#0f172a; cursor:not-allowed;" />
                 <div class="hint" style="font-size:0.75rem; color:#64748b;">Automatically verified via payment gateway.</div>
               </div>
             </div>

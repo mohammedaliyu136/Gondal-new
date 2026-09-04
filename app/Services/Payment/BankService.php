@@ -206,7 +206,7 @@ class BankService
         }
 
         $api = MonnifyApi::getInstance();
-        $response = $api->get('api/v1/disbursements/account/validate', [
+        $response = $api->get('api/v2/disbursements/account/validate', [
             'accountNumber' => $accountNumber,
             'bankCode' => $bankCode,
         ]);

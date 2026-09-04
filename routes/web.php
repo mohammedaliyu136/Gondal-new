@@ -271,6 +271,7 @@ Route::middleware(['auth', 'session.authenticate', 'account.usable', 'session.to
         Route::post('/fleet/vehicles', [FleetController::class, 'storeVehicle'])->name('fleet.vehicles.store');
         Route::put('/fleet/vehicles/{vehicle}', [FleetController::class, 'updateVehicle'])->name('fleet.vehicles.update');
         Route::post('/fleet/drivers', [FleetController::class, 'storeDriver'])->name('fleet.drivers.store');
+        Route::post('/fleet/drivers/verify-bank', [FleetController::class, 'verifyBank'])->name('fleet.drivers.verify-bank');
         Route::put('/fleet/drivers/{driver}', [FleetController::class, 'updateDriver'])->name('fleet.drivers.update');
     });
 
@@ -392,12 +393,30 @@ Route::middleware(['auth', 'session.authenticate', 'account.usable', 'session.to
         ->middleware('permission:logistics.payments.view')->name('transport-payments.show');
     Route::post('/transport-payments', [TransportPaymentRunController::class, 'store'])
         ->middleware('permission:logistics.payments.create')->name('transport-payments.store');
+    Route::post('/transport-payments/{run}/recipients', [TransportPaymentRunController::class, 'addRecipient'])
+        ->middleware('permission:logistics.payments.create')->name('transport-payments.add-recipient');
+    Route::put('/transport-payments/{run}/recipients/{payment}', [TransportPaymentRunController::class, 'updateRecipient'])
+        ->middleware('permission:logistics.payments.create')->name('transport-payments.update-recipient');
+    Route::delete('/transport-payments/{run}/recipients/{payment}', [TransportPaymentRunController::class, 'removeRecipient'])
+        ->middleware('permission:logistics.payments.create')->name('transport-payments.remove-recipient');
     Route::post('/transport-payments/{run}/submit', [TransportPaymentRunController::class, 'submit'])
         ->middleware('permission:logistics.payments.create')->name('transport-payments.submit');
     Route::post('/transport-payments/{run}/cancel', [TransportPaymentRunController::class, 'cancel'])
         ->middleware('permission:logistics.payments.create')->name('transport-payments.cancel');
     Route::post('/transport-payments/{run}/reverse', [TransportPaymentRunController::class, 'reverseRun'])
         ->middleware('permission:logistics.payments.reverse')->name('transport-payments.reverse');
+    Route::post('/transport-payments/{run}/disburse', [TransportPaymentRunController::class, 'disburseBatch'])
+        ->middleware('permission:logistics.payments.disburse')->name('transport-payments.disburse-batch');
+    Route::get('/transport-payments/{run}/batches/{batch}', [TransportPaymentRunController::class, 'batch'])
+        ->middleware('permission:logistics.payments.view')->name('transport-payments.batches.show');
+    Route::post('/transport-payments/{run}/batches/{batch}/otp', [TransportPaymentRunController::class, 'validateBatchOtp'])
+        ->middleware('permission:logistics.payments.disburse')->name('transport-payments.batches.otp');
+    Route::post('/transport-payments/{run}/batches/{batch}/resend-otp', [TransportPaymentRunController::class, 'resendBatchOtp'])
+        ->middleware('permission:logistics.payments.disburse')->name('transport-payments.batches.resend-otp');
+    Route::post('/transport-payments/{run}/batches/{batch}/sync', [TransportPaymentRunController::class, 'syncBatchStatus'])
+        ->middleware('permission:logistics.payments.view')->name('transport-payments.batches.sync');
+    Route::post('/transport-payments/{run}/batches/{batch}/cancel', [TransportPaymentRunController::class, 'cancelBatch'])
+        ->middleware('permission:logistics.payments.disburse')->name('transport-payments.batches.cancel');
     Route::post('/driver-payments/{payment}/disburse', [TransportPaymentRunController::class, 'disburse'])
         ->middleware('permission:logistics.payments.disburse')->name('driver-payments.disburse');
     Route::post('/driver-payments/{payment}/reverse', [TransportPaymentRunController::class, 'reversePayment'])

@@ -109,7 +109,7 @@
                   <td>
                     <div style="display:flex; align-items:center; gap:10px;">
                       @if ($provider->image)
-                        <img src="{{ Storage::url($provider->image) }}" alt="{{ $provider->name }}" style="width:36px; height:36px; border-radius:6px; object-fit:cover; border:1px solid #cbd5e1;" />
+                        <img src="{{ $provider->image_url }}" alt="{{ $provider->name }}" style="width:36px; height:36px; border-radius:6px; object-fit:cover; border:1px solid #cbd5e1;" />
                       @else
                         <div style="width:36px; height:36px; border-radius:6px; background:#e2e8f0; color:#475569; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:0.85rem; border:1px solid #cbd5e1;">
                           {{ strtoupper(substr($provider->name, 0, 2)) }}
@@ -267,7 +267,7 @@
               </div>
               <div class="field" style="grid-column: span 2;">
                 <label for="create_account_name">Account Beneficiary Name</label>
-                <input type="text" id="create_account_name" name="account_name" value="{{ old('account_name') }}" class="form-control" placeholder="Auto-retrieved upon account number entry" style="background:#f8fafc; font-weight:600; color:#0f172a;" />
+                <input type="text" id="create_account_name" name="account_name" value="{{ old('account_name') }}" class="form-control" readonly placeholder="Auto-retrieved upon account number entry" style="background:#f8fafc; font-weight:600; color:#0f172a; cursor:not-allowed;" />
                 <div class="hint" style="font-size:0.75rem; color:#64748b;">Automatically verified via payment gateway.</div>
               </div>
 
@@ -375,7 +375,7 @@
               </div>
               <div class="field" style="grid-column: span 2;">
                 <label for="edit_account_name">Account Beneficiary Name</label>
-                <input type="text" id="edit_account_name" name="account_name" class="form-control" style="background:#f8fafc; font-weight:600; color:#0f172a;" />
+                <input type="text" id="edit_account_name" name="account_name" class="form-control" readonly placeholder="Auto-retrieved upon account number entry" style="background:#f8fafc; font-weight:600; color:#0f172a; cursor:not-allowed;" />
                 <div class="hint" style="font-size:0.75rem; color:#64748b;">Automatically verified via payment gateway.</div>
               </div>
 

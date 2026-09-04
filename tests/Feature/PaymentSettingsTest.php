@@ -54,4 +54,78 @@ class PaymentSettingsTest extends TestCase
         $this->assertSame('farmer@example.com', $dto->email);
         $this->assertSame('REF-12345', $dto->reference);
     }
+
+    public function test_monnify_validate_account_calls_v2_endpoint(): void
+    {
+        \Illuminate\Support\Facades\Http::fake([
+            '*/api/v1/auth/login' => \Illuminate\Support\Facades\Http::response([
+                'requestSuccessful' => true,
+                'responseBody' => ['accessToken' => 'fake-test-token'],
+            ]),
+            '*/api/v2/disbursements/account/validate*' => \Illuminate\Support\Facades\Http::response([
+                'requestSuccessful' => true,
+                'responseMessage' => 'Success',
+                'responseBody' => [
+                    'accountName' => 'MUSA GARBA',
+                    'accountNumber' => '0123456789',
+                    'bankCode' => '058',
+                ],
+            ]),
+        ]);
+
+        \App\Support\Settings::put([
+            'payment.monnify.api_key' => 'test-api-key',
+            'payment.monnify.secret_key' => 'test-secret-key',
+            'payment.monnify.enabled' => true,
+        ]);
+        \App\Services\Payment\PaymentApi\MonnifyApi::flush();
+
+        /** @var \App\Services\Payment\Gateways\MonnifyGateway $monnify */
+        $monnify = PaymentGatewayFactory::create('monnify');
+        $body = $monnify->validateAccount('0123456789', '058');
+
+        $this->assertSame('MUSA GARBA', $body['accountName']);
+
+        \Illuminate\Support\Facades\Http::assertSent(function ($request) {
+            return str_contains($request->url(), 'api/v2/disbursements/account/validate');
+        });
+    }
+
+    public function test_bank_service_verify_account_via_monnify_uses_v2_endpoint(): void
+    {
+        \Illuminate\Support\Facades\Http::fake([
+            '*/api/v1/auth/login' => \Illuminate\Support\Facades\Http::response([
+                'requestSuccessful' => true,
+                'responseBody' => ['accessToken' => 'fake-test-token'],
+            ]),
+            '*/api/v2/disbursements/account/validate*' => \Illuminate\Support\Facades\Http::response([
+                'requestSuccessful' => true,
+                'responseMessage' => 'Success',
+                'responseBody' => [
+                    'accountName' => 'FATIMA ALIYU',
+                    'accountNumber' => '9876543210',
+                    'bankCode' => '057',
+                ],
+            ]),
+        ]);
+
+        \App\Support\Settings::put([
+            'payment.default_gateway' => 'monnify',
+            'payment.monnify.api_key' => 'test-api-key',
+            'payment.monnify.secret_key' => 'test-secret-key',
+            'payment.monnify.enabled' => true,
+        ]);
+        \App\Services\Payment\PaymentApi\MonnifyApi::flush();
+
+        $bankService = app(\App\Services\Payment\BankService::class);
+        $result = $bankService->verifyAccount('9876543210', '057');
+
+        $this->assertTrue($result['success']);
+        $this->assertSame('FATIMA ALIYU', $result['account_name']);
+        $this->assertSame('monnify', $result['gateway']);
+
+        \Illuminate\Support\Facades\Http::assertSent(function ($request) {
+            return str_contains($request->url(), 'api/v2/disbursements/account/validate');
+        });
+    }
 }

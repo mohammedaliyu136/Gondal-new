@@ -8,8 +8,12 @@ use App\Models\Driver;
 use App\Models\Route as TransportRoute;
 use App\Models\User;
 use App\Models\Vehicle;
+use App\Services\Payment\BankService;
 use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
+use Mockery;
 use Tests\GondalTestCase;
 
 /**
@@ -161,6 +165,166 @@ class FleetRegisterRulesTest extends GondalTestCase
             Authenticatable::class,
             new Driver,
         );
+    }
+
+    public function test_driver_can_be_stored_with_bank_details_and_image(): void
+    {
+        Storage::fake('public');
+
+        $officer = $this->logisticsOfficer();
+        $this->actingAs($officer);
+
+        $file = UploadedFile::fake()->image('rider_photo.jpg');
+
+        $response = $this->post(route('fleet.drivers.store'), [
+            'name' => 'Bello Kano',
+            'phone' => '08031234567',
+            'licence_no' => 'DL-KAN-9988',
+            'type' => 'rider',
+            'status' => 'active',
+            'bank_name' => 'Zenith Bank',
+            'bank_code' => '057',
+            'bank_account' => '1012345678',
+            'account_name' => 'BELLO KANO',
+            'image' => $file,
+        ]);
+
+        $response->assertRedirect();
+
+        $driver = Driver::query()->where('name', 'Bello Kano')->firstOrFail();
+        $this->assertSame('rider', $driver->type);
+        $this->assertSame('Zenith Bank', $driver->bank_name);
+        $this->assertSame('057', $driver->bank_code);
+        $this->assertSame('1012345678', $driver->bank_account);
+        $this->assertSame('BELLO KANO', $driver->account_name);
+        $this->assertNotNull($driver->image);
+        Storage::disk('public')->assertExists($driver->image);
+
+        // Update driver
+        $newFile = UploadedFile::fake()->image('driver_new_photo.jpg');
+        $this->put(route('fleet.drivers.update', $driver), [
+            'name' => 'Bello Kano Updated',
+            'phone' => '08031234567',
+            'licence_no' => 'DL-KAN-9988',
+            'type' => 'driver',
+            'status' => 'active',
+            'bank_name' => 'Access Bank',
+            'bank_code' => '044',
+            'bank_account' => '0691234567',
+            'account_name' => 'BELLO KANO ACCESS',
+            'image' => $newFile,
+        ])->assertRedirect();
+
+        $driver->refresh();
+        $this->assertSame('Bello Kano Updated', $driver->name);
+        $this->assertSame('driver', $driver->type);
+        $this->assertSame('Access Bank', $driver->bank_name);
+        $this->assertSame('044', $driver->bank_code);
+        $this->assertSame('0691234567', $driver->bank_account);
+        $this->assertSame('BELLO KANO ACCESS', $driver->account_name);
+        Storage::disk('public')->assertExists($driver->image);
+
+        $indexResponse = $this->get(route('fleet.index'));
+        $indexResponse->assertOk();
+        $indexResponse->assertSee($driver->image_url);
+    }
+
+    public function test_driver_type_must_be_rider_or_driver(): void
+    {
+        $officer = $this->logisticsOfficer();
+        $this->actingAs($officer);
+
+        $response = $this->post(route('fleet.drivers.store'), [
+            'name' => 'Invalid Type Driver',
+            'type' => 'pilot',
+            'status' => 'active',
+        ]);
+
+        $response->assertSessionHasErrors('type');
+    }
+
+    public function test_driver_bank_verification_ajax_endpoint(): void
+    {
+        $officer = $this->logisticsOfficer();
+        $this->actingAs($officer);
+
+        $mockBankService = Mockery::mock(BankService::class);
+        $mockBankService->shouldReceive('verifyAccount')
+            ->with('1012345678', '057')
+            ->once()
+            ->andReturn([
+                'success' => true,
+                'account_name' => 'BELLO KANO',
+                'bank_name' => 'Zenith Bank',
+                'account_number' => '1012345678',
+            ]);
+        $this->app->instance(BankService::class, $mockBankService);
+
+        $response = $this->postJson(route('fleet.drivers.verify-bank'), [
+            'account_number' => '1012345678',
+            'bank_code' => '057',
+        ]);
+
+        $response->assertOk()
+            ->assertJson([
+                'success' => true,
+                'account_name' => 'BELLO KANO',
+            ]);
+    }
+
+    public function test_routes_can_be_added_for_different_categories(): void
+    {
+        $world = $this->makeMilkWorld();
+        $officer = $this->logisticsOfficer();
+        $this->actingAs($officer);
+
+        $point = $world['pointA'];
+        $centerA = $world['centerA'];
+        $centerB = $world['centerB'];
+
+        // 1. Point to Center
+        $this->post(route('fleet.routes.store'), [
+            'name' => $point->name . ' → ' . $centerA->name,
+            'from_type' => 'collection_point',
+            'from_id' => $point->id,
+            'to_type' => 'collection_center',
+            'to_id' => $centerA->id,
+            'distance_km' => '12.5',
+            'tariff' => '500.00',
+            'status' => 'active',
+        ])->assertRedirect();
+
+        // 2. Point to Factory
+        $this->post(route('fleet.routes.store'), [
+            'name' => $point->name . ' → Factory',
+            'from_type' => 'collection_point',
+            'from_id' => $point->id,
+            'to_type' => 'factory',
+            'to_id' => null,
+            'distance_km' => '35.0',
+            'tariff' => '1200.00',
+            'status' => 'active',
+        ])->assertRedirect();
+
+        // 3. Center to Center
+        $this->post(route('fleet.routes.store'), [
+            'name' => $centerA->name . ' → ' . $centerB->name,
+            'from_type' => 'collection_center',
+            'from_id' => $centerA->id,
+            'to_type' => 'collection_center',
+            'to_id' => $centerB->id,
+            'distance_km' => '18.0',
+            'tariff' => '800.00',
+            'status' => 'active',
+        ])->assertRedirect();
+
+        $routes = TransportRoute::query()->get();
+        $this->assertSame(3, $routes->count());
+
+        $indexRes = $this->get(route('fleet.index'))->assertOk();
+        $indexRes->assertSee($point->name . ' → ' . $centerA->name);
+        $indexRes->assertSee($point->name . ' → Factory');
+        $indexRes->assertSee($centerA->name . ' → ' . $centerB->name);
     }
 
     /* ------------------------------------------------------------------ */

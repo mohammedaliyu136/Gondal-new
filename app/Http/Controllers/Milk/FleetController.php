@@ -9,10 +9,13 @@ use App\Models\Driver;
 use App\Models\Route as TransportRoute;
 use App\Models\Vehicle;
 use App\Services\Audit\AuditLogger;
+use App\Services\Payment\BankService;
 use App\Support\Money;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
@@ -47,7 +50,10 @@ class FleetController extends Controller
     /** §6.3's vocabulary for a leg's ends. The factory is not a row anywhere. */
     private const ENDPOINTS = ['collection_point', 'collection_center', 'factory'];
 
-    public function __construct(private readonly AuditLogger $audit) {}
+    public function __construct(
+        private readonly AuditLogger $audit,
+        private readonly BankService $bankService,
+    ) {}
 
     public function index(): View
     {
@@ -56,9 +62,10 @@ class FleetController extends Controller
         return view('milk.fleet.index', [
             'routes' => TransportRoute::query()->orderBy('name')->get(),
             'vehicles' => Vehicle::query()->orderBy('registration')->get(),
-            'drivers' => Driver::query()->orderBy('name')->get(),
-            'centers' => CollectionCenter::query()->active()->orderBy('name')->get(['id', 'name']),
-            'points' => CollectionPoint::query()->active()->orderBy('name')->get(['id', 'name']),
+            'drivers' => Driver::query()->with(['wallet.transactions'])->orderBy('name')->get(),
+            'centers' => CollectionCenter::query()->active()->orderBy('name')->get(['id', 'name', 'distance_to_factory_km', 'transport_fee_minor']),
+            'points' => CollectionPoint::query()->active()->orderBy('name')->get(['id', 'name', 'collection_center_id', 'transport_fee_minor']),
+            'banks' => $this->bankService->getBanks(),
             'canEdit' => $this->allows('logistics.trips.edit'),
         ]);
     }
@@ -208,17 +215,55 @@ class FleetController extends Controller
 
     /* ------------------------------- Riders ------------------------------ */
 
+    public function verifyBank(Request $request): JsonResponse
+    {
+        $this->authorizeAccess('logistics.trips.edit', null, 'Verify driver bank account');
+
+        $validated = $request->validate([
+            'account_number' => ['required', 'string'],
+            'bank_code' => ['required', 'string'],
+        ]);
+
+        $result = $this->bankService->verifyAccount($validated['account_number'], $validated['bank_code']);
+
+        return response()->json($result, $result['success'] ? 200 : 422);
+    }
+
     public function storeDriver(Request $request): RedirectResponse
     {
         $this->authorizeAccess('logistics.trips.edit', null, 'Add a rider or driver');
 
-        $driver = Driver::query()->create($request->validate([
+        $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'phone' => ['nullable', 'string', 'max:32'],
             'licence_no' => ['nullable', 'string', 'max:64'],
-            'type' => ['required', 'string', 'max:32'],
+            'type' => ['required', Rule::in(['rider', 'driver'])],
             'status' => ['required', Rule::in(self::STATUSES)],
-        ]));
+            'bank_name' => ['nullable', 'string', 'max:100'],
+            'bank_code' => ['nullable', 'string', 'max:32'],
+            'bank_account' => ['nullable', 'string', 'max:32'],
+            'account_name' => ['nullable', 'string', 'max:255'],
+            'image' => ['nullable', 'image', 'max:2048'],
+        ]);
+
+        $imagePath = null;
+        if ($request->hasFile('image')) {
+            $imagePath = $request->file('image')->store('drivers', 'public');
+        }
+
+        $driver = Driver::query()->create([
+            'name' => $validated['name'],
+            'phone' => $validated['phone'] ?? null,
+            'licence_no' => $validated['licence_no'] ?? null,
+            'type' => $validated['type'],
+            'status' => $validated['status'],
+            'bank_name' => $validated['bank_name'] ?? null,
+            'bank_code' => $validated['bank_code'] ?? null,
+            'bank_account' => $validated['bank_account'] ?? null,
+            'account_name' => $validated['account_name'] ?? null,
+            'image' => $imagePath,
+            'created_by_user_id' => $this->currentUser()->id,
+        ]);
 
         return $this->recorded($driver, 'Rider '.$driver->name.' added', $driver->name.' added.');
     }
@@ -227,19 +272,43 @@ class FleetController extends Controller
     {
         $this->authorizeAccess('logistics.trips.edit', null, 'Edit rider '.$driver->name);
 
-        $before = $driver->only(['name', 'phone', 'licence_no', 'type', 'status']);
+        $before = $driver->only(['name', 'phone', 'licence_no', 'type', 'status', 'bank_name', 'bank_code', 'bank_account', 'account_name', 'image']);
 
-        $driver->forceFill($request->validate([
+        $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'phone' => ['nullable', 'string', 'max:32'],
             'licence_no' => ['nullable', 'string', 'max:64'],
-            'type' => ['required', 'string', 'max:32'],
+            'type' => ['required', Rule::in(['rider', 'driver'])],
             'status' => ['required', Rule::in(self::STATUSES)],
-        ]))->save();
+            'bank_name' => ['nullable', 'string', 'max:100'],
+            'bank_code' => ['nullable', 'string', 'max:32'],
+            'bank_account' => ['nullable', 'string', 'max:32'],
+            'account_name' => ['nullable', 'string', 'max:255'],
+            'image' => ['nullable', 'image', 'max:2048'],
+        ]);
+
+        if ($request->hasFile('image')) {
+            if ($driver->image && Storage::disk('public')->exists($driver->image)) {
+                Storage::disk('public')->delete($driver->image);
+            }
+            $driver->image = $request->file('image')->store('drivers', 'public');
+        }
+
+        $driver->forceFill([
+            'name' => $validated['name'],
+            'phone' => $validated['phone'] ?? null,
+            'licence_no' => $validated['licence_no'] ?? null,
+            'type' => $validated['type'],
+            'status' => $validated['status'],
+            'bank_name' => $validated['bank_name'] ?? null,
+            'bank_code' => $validated['bank_code'] ?? null,
+            'bank_account' => $validated['bank_account'] ?? null,
+            'account_name' => $validated['account_name'] ?? null,
+        ])->save();
 
         $this->audit->edited(
             $driver, 'Rider '.$driver->name.' updated', 'Logistics',
-            $before, $driver->only(['name', 'phone', 'licence_no', 'type', 'status']), $this->currentUser(),
+            $before, $driver->only(['name', 'phone', 'licence_no', 'type', 'status', 'bank_name', 'bank_code', 'bank_account', 'account_name', 'image']), $this->currentUser(),
         );
 
         return back()->with('success', $driver->name.' updated.');

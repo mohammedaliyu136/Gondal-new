@@ -36,6 +36,7 @@ class TransportDisbursementService
     public function __construct(
         private readonly Access $access,
         private readonly AuditLogger $audit,
+        private readonly DriverWalletService $driverWallets,
     ) {}
 
     /**
@@ -117,6 +118,25 @@ class TransportDisbursementService
                 Trip::withoutDataScope()
                     ->whereIn('id', $payment->lines()->select('trip_id'))
                     ->update(['payment_status' => Trip::PAYMENT_PAID]);
+            }
+
+            // Debit the driver's electronic wallet for the payout
+            if ($payment->driver) {
+                $this->driverWallets->debit(
+                    driver: $payment->driver,
+                    amountMinor: $amount,
+                    type: \App\Models\DriverWalletTransaction::TYPE_DEBIT,
+                    source: $disbursement,
+                    description: sprintf('Transport payout (%s)', $payment->run?->reference ?? 'Payout'),
+                    actor: $actor,
+                    meta: [
+                        'transport_payment_id' => $payment->id,
+                        'transport_payment_run_id' => $payment->transport_payment_run_id,
+                        'disbursement_id' => $disbursement->id,
+                        'method' => $method,
+                        'received_by' => $disbursement->received_by,
+                    ]
+                );
             }
 
             $this->closeRunIfSettled($payment->run);

@@ -1,8 +1,14 @@
 {{-- The caller owns the outer <div id="modal-…" class="modal">: ViewIntegrityTest
      collects modal ids from LITERAL markup, so a dynamic id here would make every
      link to this modal look like a link to a modal nobody defines. --}}
-<div class="modal-card">
-    <div class="modal-head"><h3>{{ $vehicle ? 'Edit '.$vehicle->registration : 'Add a vehicle' }}</h3></div>
+<a href="#" class="modal-overlay"></a>
+<div class="modal-dialog">
+    <div class="modal-head">
+      <div>
+        <h3>{{ $vehicle ? 'Edit '.$vehicle->registration : 'Add a vehicle' }}</h3>
+      </div>
+      <a href="#" class="modal-close">&times;</a>
+    </div>
     <form method="POST"
           action="{{ $vehicle ? route('fleet.vehicles.update', $vehicle) : route('fleet.vehicles.store') }}">
       @csrf

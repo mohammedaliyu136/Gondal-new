@@ -50,6 +50,7 @@ class Trip extends Model implements Scopeable
         'reference', 'route_id', 'collection_point_id', 'collection_center_id',
         'vehicle_id', 'driver_id', 'logged_by_user_id',
         'departed_at', 'arrived_at', 'litres_carried', 'fee_minor',
+        'plus_amount_minor', 'plus_reason', 'minus_amount_minor', 'minus_reason',
         'route_tariff_minor_snapshot', 'payment_status', 'payment_run_id',
         'is_test', 'created_by_user_id',
     ];
@@ -61,10 +62,33 @@ class Trip extends Model implements Scopeable
             'arrived_at' => 'datetime',
             'litres_carried' => 'decimal:2',
             'fee_minor' => 'integer',
+            'plus_amount_minor' => 'integer',
+            'minus_amount_minor' => 'integer',
             'route_tariff_minor_snapshot' => 'integer',
             'is_test' => 'boolean',
         ];
     }
+
+    public function formattedFee(): string
+    {
+        return \App\Support\Money::format($this->fee_minor);
+    }
+
+    public function formattedBaseTariff(): string
+    {
+        return \App\Support\Money::format($this->route_tariff_minor_snapshot ?? $this->fee_minor);
+    }
+
+    public function formattedPlusAmount(): ?string
+    {
+        return $this->plus_amount_minor > 0 ? \App\Support\Money::format($this->plus_amount_minor) : null;
+    }
+
+    public function formattedMinusAmount(): ?string
+    {
+        return $this->minus_amount_minor > 0 ? \App\Support\Money::format($this->minus_amount_minor) : null;
+    }
+
 
     public function scopeResourceKey(): string
     {

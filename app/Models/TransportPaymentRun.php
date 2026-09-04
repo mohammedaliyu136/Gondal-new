@@ -42,6 +42,12 @@ class TransportPaymentRun extends Model implements Scopeable
     /** Everything unclaimed, including trips whose centre was never recorded. */
     public const SCOPE_NETWORK = 'network';
 
+    public const SCOPE_DRIVER = 'driver';
+
+    public const SCOPE_RIDER = 'rider';
+
+    public const SCOPE_INDIVIDUAL = 'individual';
+
     public bool $tagsTestActivity = true;
 
     protected $fillable = [

@@ -473,4 +473,32 @@ class MonnifyGateway implements PaymentGatewayInterface
             gatewayStatus: $status,
         );
     }
+
+    /**
+     * Validate/resolve a bank account using Monnify v2 Account Validation endpoint.
+     *
+     * @return array<string, mixed>
+     */
+    public function validateAccount(string $accountNumber, string $bankCode): array
+    {
+        if (!$this->isEnabled()) {
+            throw new Exception('Monnify gateway is currently disabled.');
+        }
+
+        try {
+            $api = MonnifyApi::getInstance();
+            $response = $api->get('api/v2/disbursements/account/validate', [
+                'accountNumber' => $accountNumber,
+                'bankCode' => $bankCode,
+            ]);
+
+            return $response['responseBody'] ?? [];
+        } catch (\Throwable $e) {
+            Log::error('Monnify account validation error: ' . $e->getMessage(), [
+                'account_number' => $accountNumber,
+                'bank_code' => $bankCode,
+            ]);
+            throw new Exception('Monnify account validation failed: ' . $e->getMessage(), 0, $e);
+        }
+    }
 }
