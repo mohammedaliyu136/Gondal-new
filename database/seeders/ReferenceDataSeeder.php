@@ -477,22 +477,24 @@ class ReferenceDataSeeder extends Seeder
     private function seedNotificationEvents(): void
     {
         $events = [
-            ['code' => 'approval.queued', 'name' => 'Item enters my approval queue', 'module' => 'Purchases', 'required_permission' => 'purchase.requisitions.view', 'default_email' => true],
-            ['code' => 'requisition.decided', 'name' => 'My requisition approved or rejected', 'module' => 'Purchases', 'required_permission' => 'purchase.requisitions.view', 'default_email' => true],
-            ['code' => 'approval.overdue', 'name' => 'Item overdue in my queue', 'module' => 'Purchases', 'required_permission' => 'purchase.requisitions.view', 'default_email' => true],
-            ['code' => 'consignment.awaiting_confirmation', 'name' => 'Consignment awaiting confirmation', 'module' => 'Milk Collection', 'required_permission' => 'milk.consignment.confirm.view'],
-            ['code' => 'batch.discrepancy', 'name' => 'Batch discrepancy', 'module' => 'Milk Collection', 'required_permission' => 'milk.reconciliation.view', 'default_email' => true],
-            ['code' => 'rejection.at_point', 'name' => 'Rejection at a point I supervise', 'module' => 'Milk Collection', 'required_permission' => 'milk.rejection.view'],
-            ['code' => 'quality.followup_opened', 'name' => 'Quality follow-up opened', 'module' => 'Community Engagement', 'required_permission' => 'community.extension.view', 'default_email' => true],
-            // Revalidation. NOTIF-2 filters each to the people who could act on
-            // it: the field worker who was asked, and M&E who must review.
-            ['code' => 'validation.assigned', 'name' => 'A farmer revalidation was assigned to me', 'module' => 'Community Engagement', 'required_permission' => 'community.farmers.validate', 'default_email' => true],
-            ['code' => 'validation.returned', 'name' => 'My revalidation was sent back', 'module' => 'Community Engagement', 'required_permission' => 'community.farmers.validate', 'default_email' => true],
-            ['code' => 'validation.awaiting_review', 'name' => 'A revalidation is waiting for my review', 'module' => 'Community Engagement', 'required_permission' => 'community.validation.approve'],
-            ['code' => 'role.changed', 'name' => 'Role or permission changed', 'module' => 'Administration', 'required_permission' => null, 'default_email' => true],
-            ['code' => 'signin.new_device', 'name' => 'Sign-in from a new device', 'module' => 'Account', 'required_permission' => null, 'default_email' => true],
-            ['code' => 'shop.low_stock', 'name' => 'Low stock', 'module' => 'One-Stop Shop', 'required_permission' => 'shop.inventory.view'],
-            ['code' => 'leave.decided', 'name' => 'My leave request approved or rejected', 'module' => 'Human Resources', 'required_permission' => 'hr.leave.own.view', 'default_email' => true],
+            ['code' => 'approval.queued', 'name' => 'Item enters my approval queue', 'module' => 'Purchases', 'required_permission' => 'purchase.requisitions.view', 'default_email' => true, 'default_telegram' => true],
+            ['code' => 'requisition.decided', 'name' => 'My requisition approved or rejected', 'module' => 'Purchases', 'required_permission' => 'purchase.requisitions.view', 'default_email' => true, 'default_telegram' => true],
+            ['code' => 'approval.overdue', 'name' => 'Item overdue in my queue', 'module' => 'Purchases', 'required_permission' => 'purchase.requisitions.view', 'default_email' => true, 'default_telegram' => true],
+            ['code' => 'consignment.awaiting_confirmation', 'name' => 'Consignment awaiting confirmation', 'module' => 'Milk Collection', 'required_permission' => 'milk.consignment.confirm.view', 'default_email' => false, 'default_telegram' => true],
+            ['code' => 'batch.discrepancy', 'name' => 'Batch discrepancy', 'module' => 'Milk Collection', 'required_permission' => 'milk.reconciliation.view', 'default_email' => true, 'default_telegram' => true],
+            ['code' => 'rejection.at_point', 'name' => 'Rejection at a point I supervise', 'module' => 'Milk Collection', 'required_permission' => 'milk.rejection.view', 'default_email' => false, 'default_telegram' => true],
+            ['code' => 'milk.delivery_recorded', 'name' => 'New milk delivery recorded', 'module' => 'Milk Collection', 'required_permission' => 'milk.deliveries.view', 'default_email' => false, 'default_telegram' => false],
+            ['code' => 'quality.followup_opened', 'name' => 'Quality follow-up opened', 'module' => 'Community Engagement', 'required_permission' => 'community.extension.view', 'default_email' => true, 'default_telegram' => true],
+            ['code' => 'validation.assigned', 'name' => 'A farmer revalidation was assigned to me', 'module' => 'Community Engagement', 'required_permission' => 'community.farmers.validate', 'default_email' => true, 'default_telegram' => true],
+            ['code' => 'validation.returned', 'name' => 'My revalidation was sent back', 'module' => 'Community Engagement', 'required_permission' => 'community.farmers.validate', 'default_email' => true, 'default_telegram' => true],
+            ['code' => 'validation.awaiting_review', 'name' => 'A revalidation is waiting for my review', 'module' => 'Community Engagement', 'required_permission' => 'community.validation.approve', 'default_email' => false, 'default_telegram' => true],
+            ['code' => 'role.changed', 'name' => 'Role or permission changed', 'module' => 'Administration', 'required_permission' => null, 'default_email' => true, 'default_telegram' => true],
+            ['code' => 'signin.new_device', 'name' => 'Sign-in from a new device', 'module' => 'Account', 'required_permission' => null, 'default_email' => true, 'default_telegram' => true],
+            ['code' => 'shop.low_stock', 'name' => 'Low stock', 'module' => 'One-Stop Shop', 'required_permission' => 'shop.inventory.view', 'default_email' => false, 'default_telegram' => true],
+            ['code' => 'leave.requested', 'name' => 'New employee leave request submitted', 'module' => 'Human Resources', 'required_permission' => 'hr.leave.view', 'default_email' => true, 'default_telegram' => true],
+            ['code' => 'leave.decided', 'name' => 'My leave request approved or rejected', 'module' => 'Human Resources', 'required_permission' => 'hr.leave.own.view', 'default_email' => true, 'default_telegram' => true],
+            ['code' => 'payroll.generated', 'name' => 'Payroll run generated and awaiting review', 'module' => 'Human Resources', 'required_permission' => 'hr.payroll.view', 'default_email' => true, 'default_telegram' => true],
+            ['code' => 'payroll.disbursed', 'name' => 'Payroll run disbursed', 'module' => 'Human Resources', 'required_permission' => 'hr.payroll.view', 'default_email' => true, 'default_telegram' => true],
         ];
 
         foreach ($events as $index => $event) {
@@ -505,6 +507,7 @@ class ReferenceDataSeeder extends Seeder
                     'default_in_app' => true,
                     'default_email' => $event['default_email'] ?? false,
                     'default_sms' => false,
+                    'default_telegram' => $event['default_telegram'] ?? false,
                     'status' => 'active',
                     'position' => $index + 1,
                 ],

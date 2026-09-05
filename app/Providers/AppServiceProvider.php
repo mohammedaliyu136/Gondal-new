@@ -23,6 +23,26 @@ class AppServiceProvider extends ServiceProvider
 
             return $registry;
         });
+
+        $this->app->bind(
+            \App\Services\Notifications\Contracts\NotificationServiceInterface::class,
+            \App\Services\Notifications\NotificationService::class
+        );
+
+        $this->app->bind(
+            \App\Services\Notifications\Contracts\MilkCollectionNotificationServiceInterface::class,
+            \App\Services\Notifications\Domain\MilkCollectionNotificationService::class
+        );
+
+        $this->app->bind(
+            \App\Services\Notifications\Contracts\ApprovalNotificationServiceInterface::class,
+            \App\Services\Notifications\Domain\ApprovalNotificationService::class
+        );
+
+        $this->app->bind(
+            \App\Services\Notifications\Contracts\HrNotificationServiceInterface::class,
+            \App\Services\Notifications\Domain\HrNotificationService::class
+        );
     }
 
     /**

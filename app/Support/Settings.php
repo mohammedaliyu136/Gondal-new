@@ -53,8 +53,9 @@ final class Settings
         return config('gondal.setting_fallbacks.'.$key, $default);
     }
 
-    public static function string(string $key, string $default = ''): string
+    public static function string(string $key, ?string $default = ''): string
     {
+        $default = $default ?? '';
         $value = self::get($key, $default);
 
         return is_scalar($value) ? (string) $value : $default;

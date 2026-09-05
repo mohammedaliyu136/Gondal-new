@@ -30,6 +30,7 @@
     <a href="#cooperatives" class="tab">Cooperatives</a>
     <a href="#shop" class="tab">Shop &amp; Inventory</a>
     <a href="#payments" class="tab">Payment Gateways</a>
+    <a href="#notifications-setup" class="tab">Email &amp; Telegram</a>
     <a href="{{ route('admin.settings.workflows') }}" class="tab">Approval Workflows</a>
     <a href="#numbering" class="tab">Numbering</a>
   </div>
@@ -397,6 +398,105 @@
                 </div>
                 <div class="hint mt-16">
                   <strong>Zainpay Webhook URL:</strong> <code>{{ url('/api/payments/webhook/zainpay') }}</code>
+            {{-- SMTP Email Configuration Card --}}
+            <div class="card mb-16" id="notifications-setup" style="border:1px solid #e2e8f0;background:#f8fafc">
+              <div class="card-head" style="padding:12px 16px;background:#fff;border-bottom:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;">
+                <div>
+                  <div style="font-weight:700;font-size:1.05rem;color:#0f172a;">📧 Outbound SMTP Email Configuration</div>
+                  <div class="text-small text-muted">Mail server settings for staff alerts and operational notifications</div>
+                </div>
+                <a href="#modal-test-email" class="btn btn-outline btn-sm" style="background:#fff;">✉️ Send Test Email</a>
+              </div>
+              <div class="card-body" style="padding:16px">
+                <div class="form-grid">
+                  <div class="field">
+                    <label for="st-mail-host">SMTP Host</label>
+                    <input type="text" id="st-mail-host" name="mail_smtp_host"
+                           value="{{ $mailSettings['smtp_host'] }}" placeholder="e.g. smtp.mailtrap.io or smtp.gmail.com" />
+                  </div>
+                  <div class="field">
+                    <label for="st-mail-port">SMTP Port</label>
+                    <input type="number" id="st-mail-port" name="mail_smtp_port"
+                           value="{{ $mailSettings['smtp_port'] }}" placeholder="587" min="1" max="65535" />
+                  </div>
+                  <div class="field">
+                    <label for="st-mail-enc">Encryption Protocol</label>
+                    <select id="st-mail-enc" name="mail_smtp_encryption">
+                      <option value="tls" @selected($mailSettings['smtp_encryption'] === 'tls')>TLS (Port 587 recommended)</option>
+                      <option value="ssl" @selected($mailSettings['smtp_encryption'] === 'ssl')>SSL (Port 465)</option>
+                      <option value="none" @selected($mailSettings['smtp_encryption'] === 'none' || empty($mailSettings['smtp_encryption']))>None</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label for="st-mail-user">SMTP Username</label>
+                    <input type="text" id="st-mail-user" name="mail_smtp_username"
+                           value="{{ $mailSettings['smtp_username'] }}" placeholder="Username or email" autocomplete="off" />
+                  </div>
+                  <div class="field">
+                    <label for="st-mail-pass">SMTP Password</label>
+                    <input type="password" id="st-mail-pass" name="mail_smtp_password"
+                           value="{{ $mailSettings['smtp_password'] }}" placeholder="••••••••••••" autocomplete="off" />
+                  </div>
+                  <div class="field">
+                    <label for="st-mail-from-email">Sender Email (From Address)</label>
+                    <input type="email" id="st-mail-from-email" name="mail_from_address"
+                           value="{{ $mailSettings['from_address'] }}" placeholder="noreply@gondal.ng" />
+                  </div>
+                  <div class="field">
+                    <label for="st-mail-from-name">Sender Name (From Name)</label>
+                    <input type="text" id="st-mail-from-name" name="mail_from_name"
+                           value="{{ $mailSettings['from_name'] }}" placeholder="Gondal ERP" />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {{-- Telegram Bot Configuration Card --}}
+            <div class="card mb-16" id="telegram-setup" style="border:1px solid #e2e8f0;background:#f8fafc">
+              <div class="card-head" style="padding:12px 16px;background:#fff;border-bottom:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;">
+                <div>
+                  <div class="flex" style="align-items:center;gap:10px">
+                    <label class="check-label" style="font-weight:700;font-size:1.05rem;color:#0f172a;cursor:pointer;">
+                      <input type="checkbox" name="telegram_is_enabled" value="1"
+                             @checked($telegramSettings['is_enabled']) />
+                      🤖 Telegram Bot Integration
+                    </label>
+                    <span class="badge {{ $telegramSettings['is_enabled'] ? 'success' : 'muted' }} plain">
+                      {{ $telegramSettings['is_enabled'] ? 'ENABLED' : 'DISABLED' }}
+                    </span>
+                  </div>
+                  <div class="text-small text-muted">Direct instant operational notifications to staff via Telegram bot</div>
+                </div>
+                <button type="button" onclick="document.getElementById('form-test-telegram-bot').submit();" class="btn btn-outline btn-sm" style="background:#fff;">⚡ Test Bot Connection</button>
+              </div>
+              <div class="card-body" style="padding:16px">
+                <div class="form-grid">
+                  <div class="field">
+                    <label for="st-tg-token">Telegram Bot Token</label>
+                    <input type="password" id="st-tg-token" name="telegram_bot_token"
+                           value="{{ $telegramSettings['bot_token'] }}" placeholder="123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ" autocomplete="off" />
+                    <div class="hint">Obtained from <code>@BotFather</code> on Telegram.</div>
+                  </div>
+                  <div class="field">
+                    <label for="st-tg-botname">Telegram Bot Username</label>
+                    <input type="text" id="st-tg-botname" name="telegram_bot_username"
+                           value="{{ $telegramSettings['bot_username'] }}" placeholder="e.g. GondalErpBot" />
+                    <div class="hint">Without @ symbol (e.g. <code>GondalErpBot</code>). Used for user onboarding deep links.</div>
+                  </div>
+                  <div class="field" style="grid-column:1/-1;">
+                    <label class="check-label" style="font-weight:600;cursor:pointer;">
+                      <input type="checkbox" name="telegram_verify_ssl" value="1"
+                             @checked($telegramSettings['verify_ssl']) />
+                      Verify SSL Certificate (Strict HTTPS validation)
+                    </label>
+                    <div class="hint">Leave unchecked on local Windows / WAMP if <code>cacert.pem</code> is not configured. When enabled, requires valid <code>curl.cainfo</code> in <code>php.ini</code>.</div>
+                  </div>
+                </div>
+
+                <div class="hint mt-16" style="background:#fff;padding:12px 14px;border-radius:6px;border:1px solid #e2e8f0;">
+                  <div style="font-weight:600;margin-bottom:4px;">Webhook &amp; Polling Integration:</div>
+                  <div><strong>Webhook URL:</strong> <code>{{ $telegramSettings['webhook_url'] }}</code></div>
+                  <div class="mt-8"><strong>Local Testing (No Public Domain):</strong> Run <code>php artisan telegram:poll</code> in terminal to receive onboarding and test notifications instantly.</div>
                 </div>
               </div>
             </div>
@@ -680,4 +780,37 @@
       </div>
     </div>
   @endforeach
+
+  {{-- Modal Test Email --}}
+  <div id="modal-test-email" class="modal">
+    <a href="#" class="modal-overlay"></a>
+    <div class="modal-dialog narrow">
+      <div class="modal-head">
+        <div>
+          <h3>✉️ Send Test Email</h3>
+          <p>Verify outbound SMTP server connectivity and credentials</p>
+        </div>
+        <a href="#" class="modal-close">&times;</a>
+      </div>
+      <form method="POST" action="{{ route('admin.settings.test-email') }}">
+        @csrf
+        <div class="modal-body">
+          <div class="field">
+            <label for="test_email_address">Recipient Email Address <span class="req">*</span></label>
+            <input type="email" id="test_email_address" name="test_email" value="{{ auth()->user()?->email }}" required placeholder="e.g. your-email@domain.com" />
+            <div class="hint">An immediate test notification will be dispatched using the current SMTP settings.</div>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <a href="#" class="btn btn-ghost">Cancel</a>
+          <button type="submit" class="btn btn-primary">Dispatch Test Email &rarr;</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  {{-- Hidden form for testing Telegram Bot --}}
+  <form id="form-test-telegram-bot" method="POST" action="{{ route('admin.settings.test-telegram') }}" style="display:none;">
+    @csrf
+  </form>
 @endsection

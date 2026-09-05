@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 /** NOTIF-1 — per-user, per-event channel preferences. */
 class NotificationPreference extends Model
 {
-    protected $fillable = ['user_id', 'event_type', 'in_app', 'email', 'sms'];
+    protected $fillable = ['user_id', 'event_type', 'in_app', 'email', 'sms', 'telegram'];
 
     protected function casts(): array
     {
@@ -16,6 +16,7 @@ class NotificationPreference extends Model
             'in_app' => 'boolean',
             'email' => 'boolean',
             'sms' => 'boolean',
+            'telegram' => 'boolean',
         ];
     }
 

@@ -91,10 +91,26 @@ class SettingsController extends Controller
                 'zainpay' => [
                     'enabled' => Settings::boolean('payment.zainpay.enabled', false),
                     'mode' => Settings::string('payment.zainpay.mode', 'test'),
-                    'public_key' => Settings::string('payment.zainpay.public_key', config('services.zainpay.public_key', '')),
-                    'zainbox_code' => Settings::string('payment.zainpay.zainbox_code', config('services.zainpay.zainbox_code', '')),
-                    'source_account_number' => Settings::string('payment.zainpay.source_account_number', config('services.zainpay.source_account_number', '')),
+                    'public_key' => Settings::string('payment.zainpay.public_key', (string) (config('services.zainpay.public_key') ?? '')),
+                    'zainbox_code' => Settings::string('payment.zainpay.zainbox_code', (string) (config('services.zainpay.zainbox_code') ?? '')),
+                    'source_account_number' => Settings::string('payment.zainpay.source_account_number', (string) (config('services.zainpay.source_account_number') ?? '')),
                 ],
+            ],
+            'mailSettings' => [
+                'smtp_host' => Settings::string('mail.smtp_host', (string) (config('mail.mailers.smtp.host') ?? '')),
+                'smtp_port' => Settings::integer('mail.smtp_port', (int) (config('mail.mailers.smtp.port') ?: 587)),
+                'smtp_username' => Settings::string('mail.smtp_username', (string) (config('mail.mailers.smtp.username') ?? '')),
+                'smtp_password' => Settings::string('mail.smtp_password', (string) (config('mail.mailers.smtp.password') ?? '')),
+                'smtp_encryption' => Settings::string('mail.smtp_encryption', (string) (config('mail.mailers.smtp.encryption') ?? 'tls')),
+                'from_address' => Settings::string('mail.from_address', (string) (config('mail.from.address') ?? 'noreply@gondal.ng')),
+                'from_name' => Settings::string('mail.from_name', (string) (config('mail.from.name') ?? 'Gondal ERP')),
+            ],
+            'telegramSettings' => [
+                'bot_token' => Settings::string('telegram.bot_token', (string) (config('services.telegram.bot_token') ?? '')),
+                'bot_username' => Settings::string('telegram.bot_username', (string) (config('services.telegram.bot_username') ?? '')),
+                'is_enabled' => Settings::boolean('telegram.is_enabled', true),
+                'verify_ssl' => Settings::boolean('telegram.verify_ssl', false),
+                'webhook_url' => url('/api/telegram/webhook'),
             ],
             // NG-1 / NG-2 — the disabled-modules panel, from data.
             'disabledModules' => Navigation::disabledModules(),
@@ -122,7 +138,7 @@ class SettingsController extends Controller
             'payment_paystack_mode' => ['required', 'in:test,live'],
             'payment_paystack_public_key' => ['nullable', 'string', 'max:255'],
             'payment_paystack_secret_key' => ['nullable', 'string', 'max:255'],
-            
+
             'payment_monnify_enabled' => ['nullable', 'boolean'],
             'payment_monnify_mode' => ['required', 'in:test,live'],
             'payment_monnify_api_key' => ['nullable', 'string', 'max:255'],
@@ -135,10 +151,29 @@ class SettingsController extends Controller
             'payment_zainpay_public_key' => ['nullable', 'string', 'max:255'],
             'payment_zainpay_zainbox_code' => ['nullable', 'string', 'max:255'],
             'payment_zainpay_source_account_number' => ['nullable', 'string', 'max:255'],
+
+            // SMTP Email Settings
+            'mail_smtp_host' => ['nullable', 'string', 'max:255'],
+            'mail_smtp_port' => ['nullable', 'integer', 'min:1', 'max:65535'],
+            'mail_smtp_username' => ['nullable', 'string', 'max:255'],
+            'mail_smtp_password' => ['nullable', 'string', 'max:255'],
+            'mail_smtp_encryption' => ['nullable', 'string', 'in:tls,ssl,none'],
+            'mail_from_address' => ['nullable', 'email', 'max:255'],
+            'mail_from_name' => ['nullable', 'string', 'max:255'],
+
+            // Telegram Settings
+            'telegram_bot_token' => ['nullable', 'string', 'max:255'],
+            'telegram_bot_username' => ['nullable', 'string', 'max:255'],
+            'telegram_is_enabled' => ['nullable', 'boolean'],
         ], [], [
             'milk_delivery_cutoff_latest_override' => 'latest permitted cut-off',
             'payment_default_gateway' => 'default payment gateway',
         ]);
+
+        $botUsername = ltrim(trim((string) ($validated['telegram_bot_username'] ?? '')), '@');
+        if ($botUsername !== '' && ! str_ends_with(strtolower($botUsername), 'bot')) {
+            $botUsername .= '_bot';
+        }
 
         Settings::put([
             'milk.delivery_cutoff_default' => $validated['milk_delivery_cutoff_default'],
@@ -169,6 +204,21 @@ class SettingsController extends Controller
             'payment.zainpay.public_key' => (string) ($validated['payment_zainpay_public_key'] ?? ''),
             'payment.zainpay.zainbox_code' => (string) ($validated['payment_zainpay_zainbox_code'] ?? ''),
             'payment.zainpay.source_account_number' => (string) ($validated['payment_zainpay_source_account_number'] ?? ''),
+
+            // SMTP Email Settings
+            'mail.smtp_host' => (string) ($validated['mail_smtp_host'] ?? ''),
+            'mail.smtp_port' => (int) ($validated['mail_smtp_port'] ?? 587),
+            'mail.smtp_username' => (string) ($validated['mail_smtp_username'] ?? ''),
+            'mail.smtp_password' => (string) ($validated['mail_smtp_password'] ?? ''),
+            'mail.smtp_encryption' => (string) ($validated['mail_smtp_encryption'] ?? 'tls'),
+            'mail.from_address' => (string) ($validated['mail_from_address'] ?? ''),
+            'mail.from_name' => (string) ($validated['mail_from_name'] ?? ''),
+
+            // Telegram Settings
+            'telegram.bot_token' => (string) ($validated['telegram_bot_token'] ?? ''),
+            'telegram.bot_username' => $botUsername,
+            'telegram.is_enabled' => $request->boolean('telegram_is_enabled'),
+            'telegram.verify_ssl' => $request->boolean('telegram_verify_ssl'),
         ], $this->currentUser(), 'general');
 
         // Flush API client memoized instances
@@ -177,6 +227,45 @@ class SettingsController extends Controller
         \App\Services\Payment\PaymentApi\ZainpayApi::flush();
 
         return back()->with('success', 'Settings saved. Every module that reads them picks the change up immediately.');
+    }
+
+    public function sendTestEmail(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'test_email' => ['required', 'email'],
+        ]);
+
+        try {
+            app(\App\Services\Notifications\Channels\EmailNotificationChannel::class)->applyDynamicSmtpSettings();
+
+            \Illuminate\Support\Facades\Mail::raw(
+                "This is a test notification from Gondal ERP sent at " . \App\Support\Wat::now()->toDateTimeString() . " to verify SMTP email configuration.",
+                function ($message) use ($validated) {
+                    $message->to($validated['test_email'])
+                        ->subject('Gondal ERP — SMTP Test Notification');
+                }
+            );
+
+            return back()->with('success', "Test email sent successfully to {$validated['test_email']}.");
+        } catch (\Throwable $e) {
+            return back()->with('error', 'Failed to send test email: ' . $e->getMessage());
+        }
+    }
+
+    public function testTelegramBot(\App\Services\Notifications\Telegram\TelegramService $telegram): RedirectResponse
+    {
+        $result = $telegram->getMe();
+
+        if ($result['success'] ?? false) {
+            $username = $result['bot']['username'] ?? null;
+            if ($username) {
+                \App\Support\Settings::put(['telegram.bot_username' => $username], $this->currentUser(), 'general');
+            }
+
+            return back()->with('success', $result['message']);
+        }
+
+        return back()->with('error', $result['message'] ?? 'Telegram Bot connection test failed.');
     }
 
     /**

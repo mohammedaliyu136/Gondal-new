@@ -3,30 +3,54 @@
 namespace App\Services\Notifications;
 
 use App\Authorization\Access;
-use App\Models\AppNotification;
 use App\Models\NotificationEvent;
 use App\Models\NotificationPreference;
 use App\Models\User;
-use App\Notifications\GondalEventNotification;
+use App\Services\Notifications\Channels\EmailNotificationChannel;
+use App\Services\Notifications\Channels\InAppNotificationChannel;
+use App\Services\Notifications\Channels\TelegramNotificationChannel;
+use App\Services\Notifications\Contracts\NotificationChannelInterface;
+use App\Services\Notifications\Contracts\NotificationServiceInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 
 /**
- * §11 — the only way a notification is sent.
+ * §11 — the core application notification service.
  *
- * NOTIF-2 — "Notifications are permission-filtered — a user is never notified
- *   about something they could not open." The gate is the event's
- *   `required_permission` column, checked against the recipient's effective
- *   permissions AND their data scope for the subject record. A center officer is
- *   not told about a discrepancy at someone else's center.
- * NOTIF-1 — per-user, per-event channel preferences, defaulted from the event.
- * NOTIF-5 — email and SMS go through the queue. The in-app row is written
- *   immediately because it is the record itself, not a send.
- * USER-2 — recipients are always staff. Farmers have no notification path.
+ * Implements NotificationServiceInterface with clean driver-based channel architecture:
+ * In-App (database records), Email (queued Mailable / SMTP), Telegram (Telegram Bot API).
+ *
+ * NOTIF-2 — permission-filtered: a user is never notified about something they cannot open.
+ * NOTIF-1 — per-user, per-event channel preferences defaulting to event catalogue settings.
+ * USER-2 — recipients are always staff.
  */
-class NotificationService
+class NotificationService implements NotificationServiceInterface
 {
-    public function __construct(private readonly Access $access) {}
+    /** @var array<string, NotificationChannelInterface> */
+    private array $channels = [];
+
+    public function __construct(
+        private readonly Access $access,
+        InAppNotificationChannel $inAppChannel,
+        EmailNotificationChannel $emailChannel,
+        TelegramNotificationChannel $telegramChannel,
+    ) {
+        $this->registerChannel($inAppChannel);
+        $this->registerChannel($emailChannel);
+        $this->registerChannel($telegramChannel);
+    }
+
+    public function registerChannel(NotificationChannelInterface $channel): self
+    {
+        $this->channels[$channel->getKey()] = $channel;
+
+        return $this;
+    }
+
+    public function getChannel(string $key): ?NotificationChannelInterface
+    {
+        return $this->channels[$key] ?? null;
+    }
 
     /**
      * @param  Collection<int, User>|array<int, User>  $recipients
@@ -43,9 +67,7 @@ class NotificationService
         $event = NotificationEvent::query()->active()->where('code', $eventCode)->first();
 
         if ($event === null) {
-            // NOTIF-3 — the event catalogue is seeded data. An unknown code is a
-            // configuration error, and silently dropping the notification is
-            // better than inventing an event with no permission gate.
+            // NOTIF-3 — event catalogue is seeded data. An unknown code is a configuration error.
             report(new \RuntimeException("Unknown notification event [{$eventCode}] (NOTIF-3)."));
 
             return 0;
@@ -58,46 +80,39 @@ class NotificationService
                 continue;
             }
 
-            // NOTIF-2 — the filter.
+            // NOTIF-2 — the permission & data-scope filter.
             if (! $this->mayReceive($recipient, $event, $subject)) {
                 continue;
             }
 
-            $channels = $this->channelsFor($recipient, $event);
+            $userChannels = $this->channelsFor($recipient, $event);
 
-            if ($channels === []) {
+            if ($userChannels === []) {
                 continue;
             }
 
-            if (in_array('in_app', $channels, true)) {
-                AppNotification::query()->create([
-                    'user_id' => $recipient->getKey(),
-                    'type' => $event->code,
-                    'title' => $title,
-                    'body' => $body,
-                    'action_url' => $actionUrl,
-                    'channel_flags' => $channels,
-                    'subject_type' => $subject?->getMorphClass(),
-                    'subject_id' => $subject?->getKey(),
-                ]);
+            $deliveredOnAnyChannel = false;
+
+            foreach ($userChannels as $channelKey) {
+                if (isset($this->channels[$channelKey])) {
+                    $dispatched = $this->channels[$channelKey]->send(
+                        recipient: $recipient,
+                        event: $event,
+                        title: $title,
+                        body: $body,
+                        actionUrl: $actionUrl,
+                        subject: $subject,
+                    );
+
+                    if ($dispatched) {
+                        $deliveredOnAnyChannel = true;
+                    }
+                }
             }
 
-            $queued = array_values(array_intersect($channels, ['email', 'sms']));
-
-            if ($queued !== []) {
-                $recipient->notify(new GondalEventNotification(
-                    event: $event,
-                    title: $title,
-                    body: $body,
-                    actionUrl: $actionUrl,
-                    channels: array_map(
-                        static fn (string $channel) => $channel === 'email' ? 'mail' : $channel,
-                        $queued,
-                    ),
-                ));
+            if ($deliveredOnAnyChannel) {
+                $sent++;
             }
-
-            $sent++;
         }
 
         return $sent;
@@ -116,8 +131,7 @@ class NotificationService
     }
 
     /**
-     * NOTIF-1 — the recipient's own preference, falling back to the event's
-     * defaults when they have never expressed one.
+     * NOTIF-1 — the recipient's own preference, falling back to event catalogue defaults.
      *
      * @return array<int, string>
      */
@@ -128,22 +142,22 @@ class NotificationService
             ->where('event_type', $event->code)
             ->first();
 
-        $inApp = $preference?->in_app ?? $event->default_in_app;
-        $email = $preference?->email ?? $event->default_email;
-        $sms = $preference?->sms ?? $event->default_sms;
+        $inApp = $preference ? $preference->in_app : $event->default_in_app;
+        $email = $preference ? $preference->email : $event->default_email;
+        $sms = $preference ? $preference->sms : $event->default_sms;
+        $telegram = $preference ? $preference->telegram : $event->default_telegram;
 
         return array_values(array_filter([
             $inApp ? 'in_app' : null,
             $email ? 'email' : null,
             $sms ? 'sms' : null,
+            $telegram ? 'telegram' : null,
         ]));
     }
 
     /**
-     * BR-23 — "Any user holding the stage's role and satisfying scope sees the
-     * item in /approvals." The same resolution decides who gets told about it.
-     *
-     * BR-24 — an active delegation adds the delegate.
+     * BR-23 — active users holding the role and satisfying scope.
+     * BR-24 — active delegations add delegates.
      *
      * @return Collection<int, User>
      */
@@ -163,8 +177,7 @@ class NotificationService
     }
 
     /**
-     * §11 — recipients for an event chosen by permission rather than by role, e.g.
-     * "rejection at a point I supervise".
+     * Recipients for an event chosen by permission rather than by role.
      *
      * @return Collection<int, User>
      */

@@ -69,6 +69,22 @@ class TransportPaymentRunController extends Controller
         // the list would have hidden it.
         $this->authorizeAccess('logistics.payments.view', $run, 'Transport run → '.$run->reference);
 
+        // Trigger sync with gateway for the latest batch before loading the view
+        $latestBatch = PaymentBatch::query()
+            ->where('source_type', $run->getMorphClass())
+            ->where('source_id', $run->getKey())
+            ->orderByDesc('id')
+            ->first();
+
+        if ($latestBatch && $latestBatch->status !== PaymentBatch::STATUS_CANCELLED) {
+            try {
+                $this->transportPaymentService->syncBatchStatus($latestBatch, $this->currentUser());
+                $run->refresh();
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning("Auto-sync gateway status on show failed for batch {$latestBatch->batch_reference}: " . $e->getMessage());
+            }
+        }
+
         $existingDriverIds = $run->payments()->pluck('driver_id')->all();
         $availableToAdd = $run->status === TransportPaymentRun::STATUS_DRAFT
             ? $this->runs->eligibleRecipients('all')->filter(fn ($item) => !in_array($item['driver']->id, $existingDriverIds))->values()
@@ -320,6 +336,14 @@ class TransportPaymentRunController extends Controller
             $run,
             'Transport Payment Batch Details'
         );
+
+        if ($batch->status !== PaymentBatch::STATUS_CANCELLED && ($batch->status !== PaymentBatch::STATUS_COMPLETED || request()->has('sync'))) {
+            try {
+                $batch = $this->transportPaymentService->syncBatchStatus($batch, $this->currentUser());
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning("Auto-sync gateway status on batch view failed for batch {$batch->batch_reference}: " . $e->getMessage());
+            }
+        }
 
         $batch->load(['items', 'initiatedBy', 'authorizedBy']);
 

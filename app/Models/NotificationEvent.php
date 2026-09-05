@@ -19,7 +19,7 @@ class NotificationEvent extends Model
 
     protected $fillable = [
         'code', 'name', 'description', 'module', 'required_permission',
-        'default_in_app', 'default_email', 'default_sms', 'status', 'position',
+        'default_in_app', 'default_email', 'default_sms', 'default_telegram', 'status', 'position',
     ];
 
     protected function casts(): array
@@ -28,6 +28,7 @@ class NotificationEvent extends Model
             'default_in_app' => 'boolean',
             'default_email' => 'boolean',
             'default_sms' => 'boolean',
+            'default_telegram' => 'boolean',
         ];
     }
 

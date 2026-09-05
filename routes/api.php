@@ -160,3 +160,8 @@ Route::prefix('v1')->group(function (): void {
             ->middleware('throttle:30,1')->name('api.mobile.attachments');
     });
 });
+
+/* -------------------- Public Webhook Endpoints -------------------- */
+Route::post('/telegram/webhook', [\App\Http\Controllers\Api\TelegramWebhookController::class, 'handle'])
+    ->name('api.telegram.webhook');
+

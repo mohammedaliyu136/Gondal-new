@@ -147,6 +147,9 @@ Route::middleware(['auth', 'session.authenticate', 'account.usable', 'session.to
     Route::post('/notifications/{notification}/read', [NotificationController::class, 'markRead'])->name('notifications.read');
     Route::post('/notifications/read-all', [NotificationController::class, 'markAllRead'])->name('notifications.read-all');
     Route::put('/notifications/preferences', [NotificationController::class, 'updatePreferences'])->name('notifications.preferences');
+    Route::post('/notifications/telegram/connect', [NotificationController::class, 'connectTelegram'])->name('notifications.telegram.connect');
+    Route::post('/notifications/telegram/disconnect', [NotificationController::class, 'disconnectTelegram'])->name('notifications.telegram.disconnect');
+    Route::post('/notifications/telegram/test', [NotificationController::class, 'sendTestTelegram'])->name('notifications.telegram.test');
 
     Route::get('/profile', [ProfileController::class, 'show'])->name('profile');
     Route::put('/profile', [ProfileController::class, 'update'])->name('profile.update');
@@ -768,6 +771,8 @@ Route::middleware(['auth', 'session.authenticate', 'account.usable', 'session.to
             Route::get('/settings', [SettingsController::class, 'index'])->name('settings');
             Route::get('/settings/reference', [ReferenceDataController::class, 'index'])->name('reference.index');
             Route::put('/settings', [SettingsController::class, 'update'])->name('settings.update');
+            Route::post('/settings/test-email', [SettingsController::class, 'sendTestEmail'])->name('settings.test-email');
+            Route::post('/settings/test-telegram', [SettingsController::class, 'testTelegramBot'])->name('settings.test-telegram');
             Route::post('/settings/grades', [SettingsController::class, 'storeGradeRate'])->name('settings.grades.store');
             Route::put('/settings/rejection-reasons/{reason}', [SettingsController::class, 'updateRejectionReason'])->name('settings.reasons.update');
             Route::put('/settings/sequences/{sequence}', [SettingsController::class, 'updateSequence'])->name('settings.sequences.update');

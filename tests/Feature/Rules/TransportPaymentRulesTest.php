@@ -800,6 +800,27 @@ class TransportPaymentRulesTest extends GondalTestCase
         $batchShowResponse->assertOk();
     }
 
+    public function test_visiting_show_endpoint_triggers_gateway_sync_for_latest_batch(): void
+    {
+        [$run, $payment, $trip] = $this->approvedRun();
+        $accountant = $this->accountant();
+        $this->actingAs($accountant);
+
+        $service = app(TransportPaymentService::class);
+        $batch = $service->createBatch($run, 'bank_transfer', $accountant);
+
+        // Manually set batch to processing to simulate pending gateway settlement
+        $batch->forceFill(['status' => PaymentBatch::STATUS_PROCESSING])->save();
+        $this->assertSame(PaymentBatch::STATUS_PROCESSING, $batch->fresh()->status);
+
+        // Visit /transport-payments/{id}
+        $response = $this->get(route('transport-payments.show', $run));
+        $response->assertOk();
+
+        // Verify gateway sync was triggered and updated the latest batch status
+        $this->assertSame(PaymentBatch::STATUS_COMPLETED, $batch->fresh()->status);
+    }
+
     /* ------------------------------------------------------------ fixtures */
 
     private array $world = [];

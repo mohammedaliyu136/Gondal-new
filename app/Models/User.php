@@ -37,7 +37,8 @@ class User extends Authenticatable
     use SoftDeletes;
 
     protected $fillable = [
-        'name', 'email', 'phone', 'department_id', 'position', 'employee_id',
+        'name', 'email', 'telegram_chat_id', 'telegram_username', 'telegram_onboarding_token',
+        'phone', 'department_id', 'position', 'employee_id',
         'status', 'is_test', 'two_factor_enabled', 'created_by_user_id',
     ];
 
@@ -582,4 +583,21 @@ class User extends Authenticatable
         $this->accessMemo = [];
         $this->unsetRelation('roles');
     }
+
+    public function hasTelegram(): bool
+    {
+        return ! empty($this->telegram_chat_id);
+    }
+
+    public function generateTelegramOnboardingToken(): string
+    {
+        if (empty($this->telegram_onboarding_token)) {
+            $this->forceFill([
+                'telegram_onboarding_token' => 'gondal_usr_' . bin2hex(random_bytes(16)),
+            ])->save();
+        }
+
+        return $this->telegram_onboarding_token;
+    }
 }
+
