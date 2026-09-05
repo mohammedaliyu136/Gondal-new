@@ -63,8 +63,11 @@
           </form>
         @else
           @if (!empty($botUsername))
-            <a href="{{ $telegramOnboardingUrl }}" target="_blank" class="btn btn-sm btn-primary font-bold" style="background: #0088cc; border-color: #0088cc;">
-              <span>📱</span> Connect with @<span>{{ $botUsername }}</span> &rarr;
+            <a href="#modal-qr-connect" class="btn btn-sm btn-primary font-bold" style="background: #0088cc; border-color: #0088cc;" onclick="startTelegramStatusPolling();">
+              <span>📷</span> Scan QR Code to Connect
+            </a>
+            <a href="{{ $telegramOnboardingUrl }}" target="_blank" class="btn btn-sm btn-outline" style="border-color: #0088cc; color: #0088cc;">
+              <span>💻</span> Open Desktop Bot
             </a>
           @endif
           <a href="#modal-connect-telegram" class="btn btn-sm btn-outline">
@@ -279,4 +282,132 @@
       </div>
     </div>
   </div>
+
+  {{-- QR Code Onboarding Modal --}}
+  <div id="modal-qr-connect" class="modal">
+    <a href="#" class="modal-overlay" onclick="stopTelegramStatusPolling();"></a>
+    <div class="modal-dialog narrow" style="max-width: 440px; text-align: center;">
+      <div class="modal-head" style="text-align: left;">
+        <div>
+          <h3>📷 Scan QR Code with Phone</h3>
+          <p>Link your Telegram mobile app in seconds</p>
+        </div>
+        <a href="#" class="modal-close" onclick="stopTelegramStatusPolling();">&times;</a>
+      </div>
+      <div class="modal-body" style="padding: 24px 20px;">
+
+        {{-- Status notification box --}}
+        <div id="qr-status-box" style="margin-bottom: 16px; padding: 10px 14px; border-radius: 8px; background: #f8fafc; border: 1px solid #e2e8f0; transition: all 0.3s ease;">
+          <div id="qr-status-text" style="font-size: 0.88rem; font-weight: 600; color: #475569; display: flex; align-items: center; justify-content: center; gap: 8px;">
+            <span id="qr-spinner" class="qr-spin" style="display: inline-block; width: 14px; height: 14px; border: 2px solid #cbd5e1; border-top-color: #0284c7; border-radius: 50%;"></span>
+            <span id="qr-status-label">Waiting for phone scan &amp; tap START...</span>
+          </div>
+        </div>
+
+        {{-- QR Code Image --}}
+        <div id="qr-image-container" style="display: inline-block; padding: 12px; background: #ffffff; border-radius: 12px; box-shadow: 0 4px 14px rgba(0,0,0,0.06); border: 1px solid #e2e8f0; margin-bottom: 16px;">
+          <img src="https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=8&data={{ urlencode($telegramOnboardingUrl) }}"
+               alt="Scan with Telegram Phone Camera"
+               width="220" height="220"
+               style="display: block; border-radius: 6px;" />
+        </div>
+
+        {{-- Simple 3-step guide --}}
+        <div style="text-align: left; background: #f1f5f9; border-radius: 8px; padding: 12px 16px; font-size: 0.85rem; color: #334155; line-height: 1.5;">
+          <div style="font-weight: 700; color: #0f172a; margin-bottom: 4px;">Quick 3 Steps:</div>
+          <ol style="margin: 0 0 0 16px; padding: 0;">
+            <li>Open your phone's <strong>Camera</strong> or <strong>Telegram App</strong>.</li>
+            <li>Point your camera at this QR code.</li>
+            <li>Tap the link and hit <strong>START</strong> in Telegram.</li>
+          </ol>
+        </div>
+
+        <div class="text-muted text-small mt-16" style="font-size: 0.82rem;">
+          Have Telegram on this computer instead?<br />
+          <a href="{{ $telegramOnboardingUrl }}" target="_blank" style="color: #0284c7; font-weight: 600; text-decoration: underline;">
+            Open directly in Telegram Desktop &rarr;
+          </a>
+        </div>
+      </div>
+      <div class="modal-foot" style="justify-content: center;">
+        <a href="#" class="btn btn-ghost" onclick="stopTelegramStatusPolling();">Close</a>
+      </div>
+    </div>
+  </div>
+
+  <style>
+    @keyframes spinPulse {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .qr-spin {
+      animation: spinPulse 1s linear infinite;
+    }
+  </style>
+
+  <script>
+    let telegramStatusInterval = null;
+
+    function startTelegramStatusPolling() {
+      stopTelegramStatusPolling();
+
+      const statusBox = document.getElementById('qr-status-box');
+      const statusLabel = document.getElementById('qr-status-label');
+      const spinner = document.getElementById('qr-spinner');
+
+      telegramStatusInterval = setInterval(function () {
+        fetch('{{ route("notifications.telegram.status") }}', {
+          headers: {
+            'Accept': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+          }
+        })
+        .then(response => response.json())
+        .then(data => {
+          if (data && data.connected) {
+            stopTelegramStatusPolling();
+
+            if (statusBox) {
+              statusBox.style.background = '#dcfce7';
+              statusBox.style.borderColor = '#86efac';
+            }
+            if (statusLabel) {
+              statusLabel.style.color = '#15803d';
+              statusLabel.innerHTML = '🎉 Account linked successfully! Refreshing...';
+            }
+            if (spinner) {
+              spinner.style.display = 'none';
+            }
+
+            // Auto-reload after a brief visual confirmation
+            setTimeout(function () {
+              window.location.href = '{{ route("notifications.index") }}';
+            }, 1200);
+          }
+        })
+        .catch(err => console.debug('Status check waiting...', err));
+      }, 2500);
+    }
+
+    function stopTelegramStatusPolling() {
+      if (telegramStatusInterval) {
+        clearInterval(telegramStatusInterval);
+        telegramStatusInterval = null;
+      }
+    }
+
+    // Auto-detect opening/closing via URL hash
+    window.addEventListener('hashchange', function () {
+      if (window.location.hash === '#modal-qr-connect') {
+        startTelegramStatusPolling();
+      } else {
+        stopTelegramStatusPolling();
+      }
+    });
+
+    // Check on initial page load if hash is present
+    if (window.location.hash === '#modal-qr-connect') {
+      startTelegramStatusPolling();
+    }
+  </script>
 @endsection

@@ -149,6 +149,23 @@ class NotificationSystemTest extends GondalTestCase
         $this->assertNull($user->telegram_username);
     }
 
+    public function test_telegram_status_endpoint_returns_json_for_qr_polling(): void
+    {
+        $user = $this->makeUser('QR Polling User', [
+            'telegram_chat_id' => '777888999',
+            'telegram_username' => 'qruser',
+        ]);
+
+        $response = $this->actingAs($user)->get(route('notifications.telegram.status'));
+
+        $response->assertOk();
+        $response->assertJson([
+            'connected' => true,
+            'chat_id' => '777888999',
+            'username' => 'qruser',
+        ]);
+    }
+
     public function test_user_can_save_notification_preferences_with_telegram(): void
     {
         $user = $this->makeUser('Pref User');

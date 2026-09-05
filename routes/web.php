@@ -150,6 +150,7 @@ Route::middleware(['auth', 'session.authenticate', 'account.usable', 'session.to
     Route::post('/notifications/telegram/connect', [NotificationController::class, 'connectTelegram'])->name('notifications.telegram.connect');
     Route::post('/notifications/telegram/disconnect', [NotificationController::class, 'disconnectTelegram'])->name('notifications.telegram.disconnect');
     Route::post('/notifications/telegram/test', [NotificationController::class, 'sendTestTelegram'])->name('notifications.telegram.test');
+    Route::get('/notifications/telegram/status', [NotificationController::class, 'checkTelegramStatus'])->name('notifications.telegram.status');
 
     Route::get('/profile', [ProfileController::class, 'show'])->name('profile');
     Route::put('/profile', [ProfileController::class, 'update'])->name('profile.update');

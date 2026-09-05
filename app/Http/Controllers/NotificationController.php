@@ -180,4 +180,18 @@ class NotificationController extends Controller
 
         return back()->with('error', $result['message'] ?? 'Failed to send test Telegram message.');
     }
+
+    /**
+     * Return JSON connection status for real-time QR code scan polling.
+     */
+    public function checkTelegramStatus(): \Illuminate\Http\JsonResponse
+    {
+        $user = $this->currentUser();
+
+        return response()->json([
+            'connected' => $user->hasTelegram(),
+            'chat_id' => $user->telegram_chat_id,
+            'username' => $user->telegram_username,
+        ]);
+    }
 }

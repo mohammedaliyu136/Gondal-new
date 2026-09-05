@@ -96,23 +96,27 @@ If your application is hosted on a public domain with an SSL certificate (`https
 
 Every registered user can link their personal Telegram account in seconds.
 
-### Method 1: One-Click Bot Deep-Link (Recommended)
-1. Go to **Notifications** from the top user menu (`/notifications`).
-2. At the top of the page, the **Telegram Notifications** status card will display:
-   - *"Your Telegram is not connected yet."*
-3. Click the green button: **Connect with Telegram**.
-4. Telegram opens automatically with a start link containing your unique secure token (e.g. `https://t.me/gondal_dairy_bot?start=tok_abc123...`).
-5. Click **START** in Telegram.
-6. The bot verifies the token and replies:
-   > *🎉 Account linked successfully! Welcome, John Doe. You will now receive notifications here.*
-7. Refresh your Notifications page: the card will show **Telegram Connected**, and a **Send Test Alert** button will appear.
+### Method 1: Scan QR Code with Phone Camera (Recommended for Desktop PC Users)
+If the user is logged into Gondal ERP on an office PC and has Telegram on their smartphone:
+1. Go to **Notifications** (`/notifications`).
+2. Click **📷 Scan QR Code to Connect**.
+3. A modal opens with a unique dynamic QR code.
+4. The user opens their **Phone Camera** or **Telegram App** on their phone and scans the QR code on screen.
+5. Telegram opens `@SeboreFarms_bot` directly on the user's phone.
+6. The user taps **START** on their phone.
+7. The desktop screen automatically senses the connection in real-time, displays *"🎉 Account linked successfully!"*, and refreshes to show the connected state!
 
-### Method 2: Manual Chat ID Entry
-If a user cannot use the deep-link:
-1. Open Telegram and search for `@userinfobot` or send `/start` to your bot.
-2. The bot or `@userinfobot` will display the user's numeric **Chat ID** (e.g. `123456789`).
-3. On `/notifications`, click **Enter Chat ID manually**.
-4. Paste the Chat ID and click **Save & Connect**.
+### Method 2: Direct Desktop Link
+If the user also has Telegram Desktop installed on their computer:
+1. On `/notifications`, click **💻 Open Desktop Bot**.
+2. Telegram Desktop opens automatically with the `/start` token.
+3. Click **START** to link the account.
+
+### Method 3: Manual Chat ID Entry
+If a user cannot scan QR codes or open links:
+1. Open Telegram and search for `@userinfobot` or message your bot directly.
+2. The bot or `@userinfobot` displays the user's numerical **Chat ID** (e.g. `123456789`).
+3. On `/notifications`, click **Manual Chat ID**, paste the ID, and save.
 
 ---
 
